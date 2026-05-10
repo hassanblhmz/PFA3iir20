@@ -1,18 +1,34 @@
 """
 Vues pour les demandes d'achat, commandes et réceptions
 """
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 
-from .models import PurchaseRequest, ValidationLog, PurchaseOrder, Reception
+from .models import PurchaseRequest, ValidationLog, PurchaseOrder, Reception, AuditLog
 from .serializers import (
     PurchaseRequestSerializer, PurchaseRequestListSerializer,
     PurchaseOrderSerializer, PurchaseOrderListSerializer,
     ReceptionSerializer, ValidationLogSerializer
 )
 from users.permissions import IsValidateur, IsAdminOrAcheteur, IsMagasinier
+
+
+def create_audit_log(user, action, entity, entity_id=None, description=''):
+    """Create audit entries for sensitive workflow actions without blocking the response."""
+    try:
+        AuditLog.objects.create(
+            user=user if getattr(user, 'is_authenticated', False) else None,
+            action=action,
+            entity=entity,
+            entity_id=entity_id,
+            description=description,
+        )
+    except Exception:
+        pass
 
 
 class PurchaseRequestViewSet(viewsets.ModelViewSet):
@@ -63,6 +79,13 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
             request=pr, action='validation', performed_by=request.user,
             comment=comment, old_status=old_status, new_status='valide'
         )
+        create_audit_log(
+            request.user,
+            'request_validation',
+            'PurchaseRequest',
+            pr.id,
+            f"Demande {pr.reference} validee.",
+        )
         return Response({'message': 'Demande validée.', 'status': pr.status})
 
     @action(detail=True, methods=['post'], permission_classes=[IsValidateur])
@@ -81,6 +104,13 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
             request=pr, action='rejet', performed_by=request.user,
             comment=comment, old_status=old_status, new_status='rejete'
         )
+        create_audit_log(
+            request.user,
+            'request_rejection',
+            'PurchaseRequest',
+            pr.id,
+            f"Demande {pr.reference} rejetee.",
+        )
         return Response({'message': 'Demande rejetée.', 'status': pr.status})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrAcheteur])
@@ -98,22 +128,30 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
 
         from suppliers.models import Supplier
         from purchases.models import PurchaseOrder, PurchaseOrderLine
-        supplier = Supplier.objects.get(pk=supplier_id)
-        order = PurchaseOrder.objects.create(
-            purchase_request=pr,
-            supplier=supplier,
-            ordered_by=request.user,
-            expected_date=request.data.get('expected_date'),
-        )
-        for line in pr.lines.all():
-            PurchaseOrderLine.objects.create(
-                order=order,
-                product=line.product,
-                quantity_ordered=line.quantity,
-                unit_price=line.unit_price,
+        supplier = get_object_or_404(Supplier, pk=supplier_id)
+        with transaction.atomic():
+            order = PurchaseOrder.objects.create(
+                purchase_request=pr,
+                supplier=supplier,
+                ordered_by=request.user,
+                expected_date=request.data.get('expected_date'),
             )
-        pr.status = 'commande'
-        pr.save()
+            for line in pr.lines.all():
+                PurchaseOrderLine.objects.create(
+                    order=order,
+                    product=line.product,
+                    quantity_ordered=line.quantity,
+                    unit_price=line.unit_price,
+                )
+            pr.status = 'commande'
+            pr.save(update_fields=['status', 'updated_at'])
+            create_audit_log(
+                request.user,
+                'order_creation',
+                'PurchaseOrder',
+                order.id,
+                f"Commande {order.reference} creee depuis la demande {pr.reference}.",
+            )
         serializer = PurchaseOrderSerializer(order)
         return Response(serializer.data, status=201)
 
@@ -133,6 +171,13 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(ordered_by=self.request.user)
+        create_audit_log(
+            self.request.user,
+            'order_creation',
+            'PurchaseOrder',
+            serializer.instance.id,
+            f"Commande {serializer.instance.reference} creee.",
+        )
 
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):

@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 from .models import (
     PurchaseRequest, PurchaseRequestLine, ValidationLog,
@@ -6,6 +7,24 @@ from .models import (
 )
 from products.serializers import ProductListSerializer
 from users.serializers import UserSerializer
+from stock.models import StockMovement
+
+
+ALLOWED_RECEPTION_ORDER_STATUSES = ['envoyee', 'confirmee', 'recue_partielle']
+
+
+def create_audit_log(user, action, entity, entity_id=None, description=''):
+    """Create a minimal audit entry without blocking the business action."""
+    try:
+        AuditLog.objects.create(
+            user=user if getattr(user, 'is_authenticated', False) else None,
+            action=action,
+            entity=entity,
+            entity_id=entity_id,
+            description=description,
+        )
+    except Exception:
+        pass
 
 
 class PurchaseRequestLineSerializer(serializers.ModelSerializer):
@@ -181,10 +200,26 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+        purchase_request = validated_data.get('purchase_request')
+        if purchase_request is None:
+            raise serializers.ValidationError({
+                'purchase_request': 'Une commande doit etre liee a une demande d achat validee.'
+            })
+        if purchase_request.status != 'valide':
+            raise serializers.ValidationError({
+                'purchase_request': 'Seule une demande validee peut generer une commande.'
+            })
+        if hasattr(purchase_request, 'order'):
+            raise serializers.ValidationError({
+                'purchase_request': 'Cette demande a deja ete convertie en commande.'
+            })
         lines_data = validated_data.pop('order_lines')
-        order = PurchaseOrder.objects.create(**validated_data)
-        for line_data in lines_data:
-            PurchaseOrderLine.objects.create(order=order, **line_data)
+        with transaction.atomic():
+            order = PurchaseOrder.objects.create(**validated_data)
+            for line_data in lines_data:
+                PurchaseOrderLine.objects.create(order=order, **line_data)
+            purchase_request.status = 'commande'
+            purchase_request.save(update_fields=['status', 'updated_at'])
         return order
 
 
@@ -227,8 +262,15 @@ class ReceptionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         order = attrs.get('order')
+        if order.status not in ALLOWED_RECEPTION_ORDER_STATUSES:
+            raise serializers.ValidationError({
+                'order': 'Une reception est autorisee uniquement pour une commande envoyee, confirmee ou partiellement recue.'
+            })
+        lines = attrs.get('lines', [])
+        if not lines:
+            raise serializers.ValidationError({'lines': 'Au moins une ligne de reception est requise.'})
         seen = set()
-        for line in attrs.get('lines', []):
+        for line in lines:
             order_line = line['order_line']
             if order_line.order_id != order.id:
                 raise serializers.ValidationError({'lines': 'Une ligne de reception ne correspond pas a cette commande.'})
@@ -242,22 +284,56 @@ class ReceptionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         lines_data = validated_data.pop('lines')
-        reception = Reception.objects.create(**validated_data)
-        for line_data in lines_data:
-            ReceptionLine.objects.create(reception=reception, **line_data)
-            # Mettre à jour les quantités reçues sur la ligne de commande
-            order_line = line_data['order_line']
-            order_line.quantity_received += line_data['quantity_received']
-            order_line.save()
-            # Mettre à jour le stock
-            product = order_line.product
-            product.current_stock += line_data['quantity_received']
-            product.save()
-        # Vérifier si la commande est totalement reçue
-        order = reception.order
-        if all(line.is_fully_received for line in order.order_lines.all()):
-            order.status = 'recue'
-        else:
-            order.status = 'recue_partielle'
-        order.save()
+        request = self.context.get('request')
+        audit_user = getattr(request, 'user', None)
+        with transaction.atomic():
+            reception = Reception.objects.create(**validated_data)
+            for line_data in lines_data:
+                ReceptionLine.objects.create(reception=reception, **line_data)
+                order_line = line_data['order_line']
+                quantity_received = line_data['quantity_received']
+
+                order_line.quantity_received += quantity_received
+                order_line.save(update_fields=['quantity_received'])
+
+                product = order_line.product
+                stock_before = product.current_stock
+                product.current_stock += quantity_received
+                product.save(update_fields=['current_stock', 'updated_at'])
+
+                reference = reception.reference or reception.order.reference
+                StockMovement.objects.create(
+                    product=product,
+                    type='entree',
+                    quantity=quantity_received,
+                    stock_before=stock_before,
+                    stock_after=product.current_stock,
+                    reference=reference,
+                    reason=f"Reception {reception.reference or reception.id} - Commande {reception.order.reference}",
+                    performed_by=reception.received_by,
+                )
+                create_audit_log(
+                    audit_user,
+                    'stock_update',
+                    'Product',
+                    product.id,
+                    f"Stock augmente de {quantity_received} apres reception {reception.reference or reception.id}.",
+                )
+
+            order = reception.order
+            if all(line.is_fully_received for line in order.order_lines.all()):
+                order.status = 'recue'
+            else:
+                order.status = 'recue_partielle'
+            order.save(update_fields=['status', 'updated_at'])
+            create_audit_log(
+                audit_user,
+                'reception_creation',
+                'Reception',
+                reception.id,
+                f"Reception creee pour la commande {order.reference}.",
+            )
         return reception
+            # Mettre à jour les quantités reçues sur la ligne de commande
+            # Mettre à jour le stock
+        # Vérifier si la commande est totalement reçue

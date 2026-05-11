@@ -5,7 +5,14 @@ $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 $Venv = Join-Path $Root ".venv_local"
 $Python = Join-Path $Venv "Scripts\python.exe"
-$Npm = "npm"
+$NpmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $NpmCommand) {
+    $NpmCommand = Get-Command npm -ErrorAction SilentlyContinue
+}
+if (-not $NpmCommand) {
+    throw "npm was not found. Install Node.js, then reopen PowerShell and try again."
+}
+$Npm = $NpmCommand.Source
 $FrontendPort = 3000
 
 Write-Host "Starting PFA - Gestion des Achats" -ForegroundColor Cyan

@@ -42,7 +42,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-3xl font-bold text-white">GestAchats</h1>
           <p className="text-blue-200 mt-1">Gestion des Achats & Approvisionnements</p>
-          <p className="text-blue-300 text-sm mt-1">Projet de Fin d'Année — EMSI 2024</p>
+          <p className="text-blue-300 text-sm mt-1">Projet de Fin d'Année — EMSI 2026</p>
         </div>
 
         {/* Formulaire */}

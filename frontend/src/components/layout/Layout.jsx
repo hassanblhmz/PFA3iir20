@@ -109,7 +109,7 @@ function Sidebar({ onClose }) {
           </div>
           <div>
             <div className="font-bold text-gray-900 text-sm">GestAchats</div>
-            <div className="text-xs text-gray-500">PFA 2024</div>
+            <div className="text-xs text-gray-500">PFA 2026</div>
           </div>
         </div>
       </div>

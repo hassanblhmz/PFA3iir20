@@ -90,7 +90,7 @@ export default function PurchaseOrderDetailPage() {
 
       <Modal isOpen={showReceptionModal} onClose={()=>setShowReceptionModal(false)} title="Enregistrer une réception" size="lg">
         <div className="space-y-4">
-          <div><label className="label">Référence BL fournisseur</label><input className="input" value={receptionRef} onChange={e=>setReceptionRef(e.target.value)} placeholder="Ex: BL-2024-001"/></div>
+          <div><label className="label">Référence BL fournisseur</label><input className="input" value={receptionRef} onChange={e=>setReceptionRef(e.target.value)} placeholder="Ex: BL-2026-001"/></div>
           <table className="w-full text-sm">
             <thead><tr className="border-b border-gray-200"><th className="text-left py-2 font-medium text-gray-500">Article</th><th className="text-left py-2 font-medium text-gray-500">Restant</th><th className="text-left py-2 font-medium text-gray-500">Quantité reçue</th></tr></thead>
             <tbody>

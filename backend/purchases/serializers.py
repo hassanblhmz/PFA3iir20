@@ -3,10 +3,11 @@ from rest_framework import serializers
 from .models import (
     PurchaseRequest, PurchaseRequestLine, ValidationLog,
     PurchaseOrder, PurchaseOrderLine, Reception, ReceptionLine,
-    SupplierConsultation, SupplierQuote, Notification, AuditLog
+    SupplierConsultation, SupplierQuote, Notification, AuditLog,
+    SupplierRequestConversation, SupplierRequestMessage
 )
 from products.serializers import ProductListSerializer
-from users.serializers import UserSerializer
+from suppliers.serializers import SupplierSerializer
 from stock.models import StockMovement
 
 
@@ -101,6 +102,90 @@ class SupplierConsultationSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'reference', 'created_by', 'selected_quote', 'created_at', 'updated_at']
+
+
+class SupplierRequestMessageSerializer(serializers.ModelSerializer):
+    sender_user_name = serializers.CharField(source='sender_user.full_name', read_only=True)
+    sender_supplier_name = serializers.CharField(source='sender_supplier.name', read_only=True)
+
+    class Meta:
+        model = SupplierRequestMessage
+        fields = [
+            'id', 'conversation', 'sender_type', 'sender_user', 'sender_user_name',
+            'sender_supplier', 'sender_supplier_name', 'body', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def validate(self, attrs):
+        conversation = attrs.get('conversation') or getattr(self.instance, 'conversation', None)
+        sender_type = attrs.get('sender_type') or getattr(self.instance, 'sender_type', None)
+        sender_user = attrs.get('sender_user') or getattr(self.instance, 'sender_user', None)
+        sender_supplier = attrs.get('sender_supplier') or getattr(self.instance, 'sender_supplier', None)
+        body = attrs.get('body') or getattr(self.instance, 'body', '')
+
+        if not body or not body.strip():
+            raise serializers.ValidationError({'body': 'Le message ne peut pas etre vide.'})
+        if conversation and conversation.status == 'cloturee':
+            raise serializers.ValidationError({'conversation': 'Impossible de repondre a une conversation cloturee.'})
+        if sender_type == 'demandeur':
+            if not sender_user:
+                raise serializers.ValidationError({'sender_user': 'Un message demandeur doit etre lie a un utilisateur.'})
+            if sender_supplier:
+                raise serializers.ValidationError({'sender_supplier': 'Un message demandeur ne doit pas etre lie a un fournisseur.'})
+            if conversation and sender_user.id != conversation.demandeur_id:
+                raise serializers.ValidationError({'sender_user': 'Seul le demandeur de la conversation peut envoyer ce message.'})
+        if sender_type == 'fournisseur':
+            if not sender_supplier:
+                raise serializers.ValidationError({'sender_supplier': 'Un message fournisseur doit etre lie a un fournisseur.'})
+            if sender_user:
+                raise serializers.ValidationError({'sender_user': 'Un message fournisseur ne doit pas etre lie a un utilisateur.'})
+            if conversation and sender_supplier.id != conversation.supplier_id:
+                raise serializers.ValidationError({'sender_supplier': 'Seul le fournisseur de la conversation peut envoyer ce message.'})
+        return attrs
+
+
+class SupplierRequestConversationSerializer(serializers.ModelSerializer):
+    messages = SupplierRequestMessageSerializer(many=True, read_only=True)
+    supplier_detail = SupplierSerializer(source='supplier', read_only=True)
+    demandeur_name = serializers.CharField(source='demandeur.full_name', read_only=True)
+    product_detail = ProductListSerializer(source='product', read_only=True)
+    trigger_display = serializers.CharField(source='get_trigger_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = SupplierRequestConversation
+        fields = [
+            'id', 'purchase_request', 'request_line', 'supplier', 'supplier_detail',
+            'demandeur', 'demandeur_name', 'product_detail', 'trigger',
+            'trigger_display', 'status', 'status_display', 'subject',
+            'messages', 'opened_at', 'updated_at', 'closed_at'
+        ]
+        read_only_fields = ['id', 'demandeur', 'opened_at', 'updated_at', 'closed_at']
+
+    def validate(self, attrs):
+        request_line = attrs.get('request_line') or getattr(self.instance, 'request_line', None)
+        purchase_request = attrs.get('purchase_request') or getattr(self.instance, 'purchase_request', None)
+        if request_line and purchase_request and request_line.request_id != purchase_request.id:
+            raise serializers.ValidationError({
+                'request_line': 'La ligne doit appartenir a la demande selectionnee.'
+            })
+
+        product = request_line.product if request_line else None
+        if not product:
+            return attrs
+
+        expected_trigger = SupplierRequestConversation.trigger_for_product(product)
+        if expected_trigger is None:
+            raise serializers.ValidationError({
+                'request_line': 'La conversation est autorisee seulement pour un article critique, en rupture ou indisponible.'
+            })
+        trigger = attrs.get('trigger') or getattr(self.instance, 'trigger', '')
+        if trigger and trigger != expected_trigger:
+            raise serializers.ValidationError({
+                'trigger': f"Le declencheur doit etre '{expected_trigger}' pour cet article."
+            })
+        attrs['trigger'] = expected_trigger
+        return attrs
 
 
 class PurchaseRequestSerializer(serializers.ModelSerializer):
@@ -334,6 +419,3 @@ class ReceptionSerializer(serializers.ModelSerializer):
                 f"Reception creee pour la commande {order.reference}.",
             )
         return reception
-            # Mettre à jour les quantités reçues sur la ligne de commande
-            # Mettre à jour le stock
-        # Vérifier si la commande est totalement reçue

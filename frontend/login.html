@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Connexion - GestAchats</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="auth-body">
+    <main class="auth-layout">
+      <section class="auth-hero" aria-labelledby="login-title">
+        <a class="brand dark-brand" href="/login/">
+          <span class="brand-mark" aria-hidden="true">GA</span>
+          <span>
+            <strong>GestAchats</strong>
+            <small>PFA EMSI</small>
+          </span>
+        </a>
+        <div>
+          <span class="eyebrow">Projet PFA</span>
+          <h1 id="login-title">Gestion des achats et approvisionnements</h1>
+        </div>
+      </section>
+
+      <section class="auth-card" aria-label="Formulaire de connexion">
+        <div class="login-card-head">
+          <span class="eyebrow">Acces application</span>
+          <h2>Connexion</h2>
+        </div>
+
+        <form class="login-form" method="post">
+          {% csrf_token %}
+          {% if form.non_field_errors %}
+            <div class="form-errors">
+              {{ form.non_field_errors }}
+            </div>
+          {% endif %}
+
+          <label for="{{ form.username.id_for_label }}">
+            {{ form.username.label }}
+            {{ form.username }}
+            {{ form.username.errors }}
+          </label>
+
+          <label for="{{ form.password.id_for_label }}">
+            {{ form.password.label }}
+            {{ form.password }}
+            {{ form.password.errors }}
+          </label>
+
+          <button type="submit">Se connecter</button>
+        </form>
+
+        <div class="demo-accounts">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">Presentation</span>
+              <h2>Comptes de test</h2>
+            </div>
+          </div>
+          <div class="demo-grid">
+            {% for account in demo_accounts %}
+              <form class="demo-button-form" method="get">
+                <button
+                  class="demo-account-button{% if selected_demo == account.key %} is-selected{% endif %}"
+                  type="submit"
+                  name="demo"
+                  value="{{ account.key }}"
+                >
+                  <strong>{{ account.role }}</strong>
+                  <span>{{ account.email }}</span>
+                  <small>{{ account.password }}</small>
+                </button>
+              </form>
+            {% endfor %}
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </body>
+</html>

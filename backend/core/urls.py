@@ -5,10 +5,46 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.static import serve
 from rest_framework_simplejwt.views import TokenRefreshView
+from . import views
+from .views import AccountsView, GestAchatsLoginView, GestAchatsLogoutView, HomeView
 from users.views import CustomTokenObtainPairView
 
+admin.site.site_header = 'GestAchats Administration'
+admin.site.site_title = 'GestAchats'
+admin.site.index_title = 'Gestion des achats et approvisionnements'
+
 urlpatterns = [
+    path('', HomeView.as_view(), name='home'),
+    path('styles.css', serve, {'path': 'styles.css', 'document_root': settings.BASE_DIR.parent / 'frontend'}),
+    path('login/', GestAchatsLoginView.as_view(), name='login'),
+    path('logout/', GestAchatsLogoutView.as_view(), name='logout'),
+    path('accounts/', AccountsView.as_view(), name='accounts'),
+    path('products/', views.product_list, name='product-list'),
+    path('products/new/', views.product_create, name='product-create'),
+    path('products/<int:pk>/edit/', views.product_edit, name='product-edit'),
+    path('suppliers/', views.supplier_list, name='supplier-list'),
+    path('suppliers/new/', views.supplier_create, name='supplier-create'),
+    path('suppliers/<int:pk>/edit/', views.supplier_edit, name='supplier-edit'),
+    path('requests/', views.request_list, name='request-list'),
+    path('requests/new/', views.request_create, name='request-create'),
+    path('requests/<int:pk>/', views.request_detail, name='request-detail'),
+    path('requests/<int:pk>/add-line/', views.request_add_line, name='request-add-line'),
+    path('requests/<int:pk>/submit/', views.request_submit, name='request-submit'),
+    path('requests/<int:pk>/validate/', views.request_validate, name='request-validate'),
+    path('requests/<int:pk>/reject/', views.request_reject, name='request-reject'),
+    path('requests/<int:pk>/create-order/', views.request_create_order, name='request-create-order'),
+    path('requests/<int:pk>/open-conversation/', views.request_open_conversation, name='request-open-conversation'),
+    path('orders/', views.order_list, name='order-list'),
+    path('orders/<int:pk>/', views.order_detail, name='order-detail'),
+    path('orders/<int:pk>/send/', views.order_send, name='order-send'),
+    path('orders/<int:pk>/receive/', views.order_receive, name='order-receive'),
+    path('stock/', views.stock_dashboard, name='stock-dashboard'),
+    path('stock/adjust/', views.stock_adjust, name='stock-adjust'),
+    path('conversations/', views.conversation_list, name='conversation-list'),
+    path('conversations/<int:pk>/', views.conversation_detail, name='conversation-detail'),
+    path('conversations/<int:pk>/reply/', views.conversation_reply, name='conversation-reply'),
     path('admin/', admin.site.urls),
 
     # Auth JWT

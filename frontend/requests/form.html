@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - GestAchats{% endblock %}
+{% block eyebrow %}Demandeur{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block page_subtitle %}Creez une demande avec une premiere ligne. Vous pourrez ajouter d'autres lignes tant que la demande reste en brouillon.{% endblock %}
+{% block page_actions %}
+  <a class="text-link" href="/requests/">Retour demandes</a>
+{% endblock %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <form method="post" class="entity-form">
+      {% csrf_token %}
+      <h2>Informations demande</h2>
+      <div class="form-grid">
+        {% for field in request_form %}
+          <label>
+            <span>{{ field.label }}</span>
+            {{ field }}
+            {{ field.errors }}
+          </label>
+        {% endfor %}
+      </div>
+
+      <h2>Premiere ligne</h2>
+      <div class="form-grid">
+        {% for field in line_form %}
+          <label>
+            <span>{{ field.label }}</span>
+            {{ field }}
+            {{ field.errors }}
+          </label>
+        {% endfor %}
+      </div>
+
+      <div class="form-actions">
+        <button type="submit">Creer demande</button>
+        <a class="text-link" href="/requests/">Annuler</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

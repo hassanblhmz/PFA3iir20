@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Fournisseurs - GestAchats{% endblock %}
+{% block eyebrow %}Referentiel{% endblock %}
+{% block page_title %}Fournisseurs{% endblock %}
+{% block page_subtitle %}Referentiel des fournisseurs actifs, suspendus ou inactifs.{% endblock %}
+{% block page_actions %}
+  {% if can_manage_suppliers %}<a class="text-link primary-link" href="/suppliers/new/">Ajouter fournisseur</a>{% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fournisseur</th>
+            <th>Contact</th>
+            <th>Ville</th>
+            <th>Statut</th>
+            <th>Articles</th>
+            {% if can_manage_suppliers %}<th>Action</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for supplier in suppliers %}
+            <tr>
+              <td>
+                <strong>{{ supplier.name }}</strong>
+                <span>{{ supplier.code }}</span>
+              </td>
+              <td>
+                {{ supplier.contact_name|default:"-" }}
+                <span>{{ supplier.email|default:"" }}</span>
+              </td>
+              <td>{{ supplier.city|default:"-" }}</td>
+              <td><span class="status-pill">{{ supplier.get_status_display }}</span></td>
+              <td>{{ supplier.products.count }}</td>
+              {% if can_manage_suppliers %}
+                <td><a class="mini-link" href="/suppliers/{{ supplier.id }}/edit/">Modifier</a></td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">Aucun fournisseur trouve.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

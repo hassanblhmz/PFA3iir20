@@ -33,7 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
-            'full_name', 'role', 'phone', 'department', 'is_active',
+            'full_name', 'role', 'supplier', 'phone', 'department', 'is_active',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -48,7 +48,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'email', 'username', 'first_name', 'last_name',
-            'role', 'phone', 'department', 'password', 'password_confirm'
+            'role', 'supplier', 'phone', 'department', 'password', 'password_confirm'
         ]
 
     def validate(self, data):
@@ -69,7 +69,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     """Serializer pour la mise à jour d'un utilisateur"""
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'phone', 'department', 'role', 'is_active']
+        fields = ['first_name', 'last_name', 'phone', 'department', 'role', 'supplier', 'is_active']
 
 
 class ChangePasswordSerializer(serializers.Serializer):

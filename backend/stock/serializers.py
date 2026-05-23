@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import StockMovement
+from products.models import Product
 from products.serializers import ProductListSerializer
 
 
@@ -20,7 +21,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 class StockAdjustmentSerializer(serializers.Serializer):
     """Serializer pour un ajustement manuel du stock"""
-    product = serializers.PrimaryKeyRelatedField(queryset=__import__('products.models', fromlist=['Product']).Product.objects.all())
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
     type = serializers.ChoiceField(choices=StockMovement.TYPE_CHOICES)
     quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
     reason = serializers.CharField(max_length=200)

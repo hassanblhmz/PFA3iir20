@@ -71,6 +71,7 @@ class PurchaseRequestLine(models.Model):
     )
     product = models.ForeignKey(
         Product, on_delete=models.PROTECT,
+        related_name='request_lines',
         verbose_name='Article'
     )
     quantity = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='Quantité')
@@ -101,7 +102,7 @@ class ValidationLog(models.Model):
         related_name='logs', verbose_name='Demande'
     )
     action = models.CharField(max_length=20, choices=ACTION_CHOICES)
-    performed_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    performed_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='validation_logs')
     comment = models.TextField(blank=True, verbose_name='Commentaire')
     old_status = models.CharField(max_length=20, blank=True)
     new_status = models.CharField(max_length=20, blank=True)
@@ -160,6 +161,12 @@ class SupplierConsultation(models.Model):
     def __str__(self):
         return f"{self.reference} - {self.title}"
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.selected_quote_id and self.selected_quote.consultation_id != self.id:
+            raise ValidationError('Le devis retenu doit appartenir a cette consultation.')
+
 
 class SupplierQuote(models.Model):
     """Devis recu dans le cadre d'une consultation fournisseur"""
@@ -193,6 +200,166 @@ class SupplierQuote(models.Model):
         return f"{self.supplier.name} - {self.total_amount}"
 
 
+class SupplierRequestConversation(models.Model):
+    """Discussion entre un fournisseur et le demandeur pour un article critique ou indisponible"""
+
+    TRIGGER_CHOICES = [
+        ('critique', 'Stock critique'),
+        ('rupture', 'Rupture de stock'),
+        ('indisponible', 'Article indisponible'),
+    ]
+
+    STATUS_CHOICES = [
+        ('ouverte', 'Ouverte'),
+        ('en_cours', 'En cours'),
+        ('cloturee', 'Cloturee'),
+    ]
+
+    purchase_request = models.ForeignKey(
+        PurchaseRequest, on_delete=models.CASCADE,
+        related_name='supplier_conversations', verbose_name='Demande'
+    )
+    request_line = models.ForeignKey(
+        PurchaseRequestLine, on_delete=models.CASCADE,
+        related_name='supplier_conversations', verbose_name='Ligne de demande'
+    )
+    supplier = models.ForeignKey(
+        Supplier, on_delete=models.PROTECT,
+        related_name='request_conversations', verbose_name='Fournisseur'
+    )
+    demandeur = models.ForeignKey(
+        User, on_delete=models.PROTECT,
+        related_name='supplier_conversations', verbose_name='Demandeur'
+    )
+    trigger = models.CharField(max_length=20, choices=TRIGGER_CHOICES, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ouverte')
+    subject = models.CharField(max_length=200, blank=True, verbose_name='Objet')
+    opened_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Conversation fournisseur'
+        verbose_name_plural = 'Conversations fournisseurs'
+        ordering = ['-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['request_line', 'supplier'],
+                condition=models.Q(status__in=['ouverte', 'en_cours']),
+                name='unique_open_supplier_conversation_per_line',
+            )
+        ]
+
+    @staticmethod
+    def trigger_for_product(product):
+        if not product.is_active:
+            return 'indisponible'
+        if product.stock_status == 'rupture':
+            return 'rupture'
+        if product.stock_status == 'critique':
+            return 'critique'
+        return None
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.request_line_id and self.purchase_request_id != self.request_line.request_id:
+            raise ValidationError('La ligne doit appartenir a la demande selectionnee.')
+
+        product = self.request_line.product if self.request_line_id else None
+        if not product:
+            return
+
+        expected_trigger = self.trigger_for_product(product)
+        if expected_trigger is None:
+            raise ValidationError(
+                'Une conversation fournisseur est autorisee seulement pour un article critique, en rupture ou indisponible.'
+            )
+        if not self.trigger:
+            self.trigger = expected_trigger
+        elif self.trigger != expected_trigger:
+            raise ValidationError(
+                f"Le declencheur doit etre '{expected_trigger}' pour cet article."
+            )
+
+    def save(self, *args, **kwargs):
+        if not self.demandeur_id and self.purchase_request_id:
+            self.demandeur = self.purchase_request.requested_by
+        if not self.trigger and self.request_line_id:
+            self.trigger = self.trigger_for_product(self.request_line.product)
+        if not self.subject and self.request_line_id:
+            self.subject = f"{self.request_line.product.name} - {self.get_trigger_display()}"
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def product(self):
+        return self.request_line.product
+
+    def __str__(self):
+        return f"{self.supplier.name} / {self.purchase_request.reference} - {self.get_trigger_display()}"
+
+
+class SupplierRequestMessage(models.Model):
+    """Message dans une conversation entre fournisseur et demandeur"""
+
+    SENDER_CHOICES = [
+        ('demandeur', 'Demandeur'),
+        ('fournisseur', 'Fournisseur'),
+    ]
+
+    conversation = models.ForeignKey(
+        SupplierRequestConversation, on_delete=models.CASCADE,
+        related_name='messages'
+    )
+    sender_type = models.CharField(max_length=20, choices=SENDER_CHOICES)
+    sender_user = models.ForeignKey(
+        User, on_delete=models.PROTECT,
+        related_name='supplier_messages', null=True, blank=True
+    )
+    sender_supplier = models.ForeignKey(
+        Supplier, on_delete=models.PROTECT,
+        related_name='sent_messages', null=True, blank=True
+    )
+    body = models.TextField(verbose_name='Message')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Message fournisseur'
+        verbose_name_plural = 'Messages fournisseurs'
+        ordering = ['created_at']
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if not self.body or not self.body.strip():
+            raise ValidationError('Le message ne peut pas etre vide.')
+        if self.conversation_id and self.conversation.status == 'cloturee':
+            raise ValidationError('Impossible de repondre a une conversation cloturee.')
+        if self.sender_type == 'demandeur' and not self.sender_user_id:
+            raise ValidationError('Un message demandeur doit etre lie a un utilisateur.')
+        if self.sender_type == 'fournisseur' and not self.sender_supplier_id:
+            raise ValidationError('Un message fournisseur doit etre lie a un fournisseur.')
+        if self.sender_type == 'demandeur' and self.sender_supplier_id:
+            raise ValidationError('Un message demandeur ne doit pas etre lie a un fournisseur.')
+        if self.sender_type == 'fournisseur' and self.sender_user_id:
+            raise ValidationError('Un message fournisseur ne doit pas etre lie a un utilisateur.')
+        if self.conversation_id and self.sender_type == 'demandeur' and self.sender_user_id != self.conversation.demandeur_id:
+            raise ValidationError('Seul le demandeur de la conversation peut envoyer ce message.')
+        if self.conversation_id and self.sender_type == 'fournisseur' and self.sender_supplier_id != self.conversation.supplier_id:
+            raise ValidationError('Seul le fournisseur de la conversation peut envoyer ce message.')
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if self.conversation_id and self.conversation.status == 'ouverte':
+            self.conversation.status = 'en_cours'
+            self.conversation.save(update_fields=['status', 'updated_at'])
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.get_sender_type_display()} - {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class Notification(models.Model):
     """Notification simple affichee dans l'application"""
 
@@ -210,7 +377,7 @@ class Notification(models.Model):
 class AuditLog(models.Model):
     """Journal d'audit transverse pour les actions sensibles"""
 
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='audit_logs', null=True, blank=True)
     action = models.CharField(max_length=80)
     entity = models.CharField(max_length=80)
     entity_id = models.PositiveIntegerField(null=True, blank=True)
@@ -241,6 +408,7 @@ class PurchaseOrder(models.Model):
     )
     supplier = models.ForeignKey(
         Supplier, on_delete=models.PROTECT,
+        related_name='purchase_orders',
         verbose_name='Fournisseur'
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='brouillon')
@@ -282,7 +450,7 @@ class PurchaseOrderLine(models.Model):
         PurchaseOrder, on_delete=models.CASCADE,
         related_name='order_lines'
     )
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='order_lines')
     quantity_ordered = models.DecimalField(max_digits=12, decimal_places=2)
     quantity_received = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
@@ -307,7 +475,7 @@ class Reception(models.Model):
         PurchaseOrder, on_delete=models.PROTECT,
         related_name='receptions'
     )
-    received_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    received_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='receptions')
     reference = models.CharField(max_length=50, blank=True, verbose_name='BL Fournisseur')
     notes = models.TextField(blank=True)
     received_at = models.DateTimeField(auto_now_add=True)
@@ -324,6 +492,6 @@ class ReceptionLine(models.Model):
         Reception, on_delete=models.CASCADE,
         related_name='lines'
     )
-    order_line = models.ForeignKey(PurchaseOrderLine, on_delete=models.PROTECT)
+    order_line = models.ForeignKey(PurchaseOrderLine, on_delete=models.PROTECT, related_name='reception_lines')
     quantity_received = models.DecimalField(max_digits=12, decimal_places=2)
     notes = models.CharField(max_length=200, blank=True)

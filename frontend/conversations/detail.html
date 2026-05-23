@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ conversation.subject }} - GestAchats{% endblock %}
+{% block eyebrow %}Conversation{% endblock %}
+{% block page_title %}{{ conversation.subject }}{% endblock %}
+{% block page_subtitle %}{{ conversation.supplier.name }} avec {{ conversation.demandeur.full_name }} - {{ conversation.get_trigger_display }}{% endblock %}
+{% block page_actions %}
+  <a class="text-link" href="/conversations/">Retour conversations</a>
+{% endblock %}
+
+{% block content %}
+  <div class="content-grid">
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <span class="eyebrow">Messages</span>
+          <h2>Fil de discussion</h2>
+        </div>
+        <span class="status-pill open">{{ conversation.get_status_display }}</span>
+      </div>
+      <div class="conversation">
+        {% for message in conversation.messages.all %}
+          <article class="message {% if message.sender_type == 'fournisseur' %}supplier{% else %}demandeur{% endif %}">
+            <span>{{ message.get_sender_type_display }} - {{ message.created_at|date:"d/m/Y H:i" }}</span>
+            <p>{{ message.body }}</p>
+          </article>
+        {% empty %}
+          <article class="message demandeur"><span>Aucun message</span><p>La conversation vient d'etre ouverte.</p></article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <span class="eyebrow">Reponse</span>
+          <h2>Ajouter un message</h2>
+        </div>
+      </div>
+      <form method="post" action="/conversations/{{ conversation.id }}/reply/" class="entity-form compact-form">
+        {% csrf_token %}
+        {% for field in form %}
+          <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+        {% endfor %}
+        <button type="submit">Envoyer message</button>
+      </form>
+    </section>
+  </div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Demandes - GestAchats{% endblock %}
+{% block eyebrow %}Achats{% endblock %}
+{% block page_title %}Demandes d'achat{% endblock %}
+{% block page_subtitle %}Creation, validation et conversion des demandes en commandes.{% endblock %}
+{% block page_actions %}
+  {% if can_create_requests %}<a class="text-link primary-link" href="/requests/new/">Nouvelle demande</a>{% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Reference</th>
+            <th>Objet</th>
+            <th>Demandeur</th>
+            <th>Statut</th>
+            <th>Priorite</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in requests %}
+            <tr>
+              <td>
+                <strong><a href="/requests/{{ item.id }}/">{{ item.reference }}</a></strong>
+                <span>{{ item.created_at|date:"d/m/Y" }}</span>
+              </td>
+              <td>{{ item.title }}</td>
+              <td>{{ item.requested_by.full_name }}</td>
+              <td><span class="status-pill info">{{ item.get_status_display }}</span></td>
+              <td>{{ item.priority }}</td>
+              <td>{{ item.total_amount }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">Aucune demande trouvee.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

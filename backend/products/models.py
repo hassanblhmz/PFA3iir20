@@ -70,6 +70,8 @@ class Product(models.Model):
 
     @property
     def stock_status(self):
+        if not self.is_active:
+            return 'indisponible'
         if self.current_stock <= 0:
             return 'rupture'
         elif self.current_stock <= self.min_stock:
@@ -77,3 +79,14 @@ class Product(models.Model):
         elif self.current_stock <= self.min_stock * Decimal('1.5'):
             return 'faible'
         return 'normal'
+
+    @property
+    def stock_status_label(self):
+        labels = {
+            'indisponible': 'Indisponible',
+            'rupture': 'Rupture',
+            'critique': 'Critique',
+            'faible': 'Faible',
+            'normal': 'Normal',
+        }
+        return labels[self.stock_status]

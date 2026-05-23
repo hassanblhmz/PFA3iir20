@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import PurchaseRequest, PurchaseRequestLine, PurchaseOrder, PurchaseOrderLine, ValidationLog, Reception
+from .models import (
+    PurchaseRequest, PurchaseRequestLine, PurchaseOrder, PurchaseOrderLine,
+    ValidationLog, Reception, SupplierRequestConversation, SupplierRequestMessage
+)
 
 class PRLineInline(admin.TabularInline):
     model = PurchaseRequestLine
@@ -25,3 +28,16 @@ class POAdmin(admin.ModelAdmin):
 class ValidationLogAdmin(admin.ModelAdmin):
     list_display = ['request', 'action', 'performed_by', 'created_at']
     list_filter = ['action']
+
+
+class SupplierRequestMessageInline(admin.TabularInline):
+    model = SupplierRequestMessage
+    extra = 0
+
+
+@admin.register(SupplierRequestConversation)
+class SupplierRequestConversationAdmin(admin.ModelAdmin):
+    list_display = ['purchase_request', 'supplier', 'demandeur', 'trigger', 'status', 'updated_at']
+    list_filter = ['trigger', 'status', 'supplier']
+    search_fields = ['purchase_request__reference', 'supplier__name', 'subject']
+    inlines = [SupplierRequestMessageInline]

@@ -1,15 +1,280 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PFA - Gestion des Achats & Approvisionnements</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ workspace.title }} - GestAchats</title>
+    <meta name="description" content="Espace GestAchats authentifie et adapte au role connecte.">
+    <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation principale">
+        <a class="brand" href="/" aria-label="GestAchats accueil">
+          <span class="brand-mark" aria-hidden="true">GA</span>
+          <span>
+            <strong>GestAchats</strong>
+            <small>{{ request.user.get_role_display }}</small>
+          </span>
+        </a>
+
+        <nav class="nav-list">
+          <a href="#dashboard" class="is-active">Tableau de bord</a>
+          <a href="#modules">Modules</a>
+          {% if workspace.flags.requests %}<a href="/requests/">Demandes</a>{% endif %}
+          {% if workspace.flags.orders %}<a href="/orders/">Commandes</a>{% endif %}
+          {% if workspace.flags.stock %}<a href="/stock/">Stock</a>{% endif %}
+          {% if workspace.flags.products %}<a href="/products/">Articles</a>{% endif %}
+          {% if workspace.flags.suppliers %}<a href="/suppliers/">Fournisseurs</a>{% endif %}
+          {% if workspace.flags.conversations %}<a href="/conversations/">Conversations</a>{% endif %}
+          {% if workspace.flags.admin %}<a href="/accounts/">Comptes</a>{% endif %}
+        </nav>
+
+        <section class="operator-panel" aria-label="Session active">
+          <span class="eyebrow">Session</span>
+          <strong>{{ request.user.full_name }}</strong>
+          <p>{{ request.user.email }}</p>
+          <p>{{ request.user.get_role_display }}</p>
+          <form method="post" action="/logout/" class="logout-form">
+            {% csrf_token %}
+            <button type="submit">Se deconnecter</button>
+          </form>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="workspace-header">
+          <div>
+            <span class="eyebrow">Gestion des achats et approvisionnements</span>
+            <h1>{{ workspace.title }}</h1>
+            <p>{{ workspace.subtitle }}</p>
+          </div>
+          <div class="header-actions">
+            <a class="text-link" href="#modules">Modules</a>
+            {% if can_create_requests %}
+              <a class="text-link primary-link" href="/requests/new/">Nouvelle demande</a>
+            {% elif can_manage_products %}
+              <a class="text-link primary-link" href="/products/new/">Nouvel article</a>
+            {% elif can_manage_stock %}
+              <a class="text-link primary-link" href="/stock/">Stock</a>
+            {% else %}
+              <a class="text-link primary-link" href="/requests/">Demandes</a>
+            {% endif %}
+          </div>
+        </header>
+
+        <section class="metrics-grid" id="dashboard" aria-label="Indicateurs principaux">
+          <article class="metric-card">
+            <span>Demandes actives</span>
+            <strong>{{ metrics.open_requests }}</strong>
+            <small>Pipeline achats</small>
+          </article>
+          <article class="metric-card accent-green">
+            <span>Commandes en cours</span>
+            <strong>{{ metrics.sent_orders }}</strong>
+            <small>Envoyees ou partielles</small>
+          </article>
+          <article class="metric-card accent-amber">
+            <span>Articles critiques</span>
+            <strong>{{ metrics.critical_products }}</strong>
+            <small>Sous le seuil minimal</small>
+          </article>
+          <article class="metric-card accent-red">
+            <span>Discussions ouvertes</span>
+            <strong>{{ metrics.conversations }}</strong>
+            <small>Fournisseur / demandeur</small>
+          </article>
+        </section>
+
+        <section class="panel wide-panel" id="modules" aria-labelledby="modules-title">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Espace autorise</span>
+              <h2 id="modules-title">Modules disponibles</h2>
+            </div>
+            <span class="status-pill success">{{ request.user.get_role_display }}</span>
+          </div>
+
+          <div class="module-grid">
+            {% for module in workspace.modules %}
+              <article class="module-card">
+                <strong>{{ module.title }}</strong>
+                <p>{{ module.description }}</p>
+                <a href="{{ module.href }}">Ouvrir</a>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <div class="content-grid">
+          {% if workspace.flags.requests %}
+            <section class="panel" id="requests" aria-labelledby="requests-title">
+              <div class="section-head compact">
+                <div>
+                  <span class="eyebrow">Demandes</span>
+                  <h2 id="requests-title">Dernieres demandes</h2>
+                </div>
+                <a class="mini-link" href="/requests/">Ouvrir</a>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Reference</th>
+                      <th>Objet</th>
+                      <th>Statut</th>
+                      <th>Priorite</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for request_item in recent_requests %}
+                      <tr>
+                        <td>
+                          <strong>{{ request_item.reference }}</strong>
+                          <span>{{ request_item.requested_by.full_name }}</span>
+                        </td>
+                        <td>{{ request_item.title }}</td>
+                        <td><span class="status-pill info">{{ request_item.get_status_display }}</span></td>
+                        <td>{{ request_item.priority }}</td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="4">Aucune demande enregistree.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          {% endif %}
+
+          {% if workspace.flags.orders %}
+            <section class="panel" id="orders" aria-labelledby="orders-title">
+              <div class="section-head compact">
+                <div>
+                  <span class="eyebrow">Commandes</span>
+                  <h2 id="orders-title">Suivi fournisseur</h2>
+                </div>
+                <a class="mini-link" href="/orders/">Ouvrir</a>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Commande</th>
+                      <th>Fournisseur</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for order in recent_orders %}
+                      <tr>
+                        <td>
+                          <strong>{{ order.reference }}</strong>
+                          <span>{{ order.created_at|date:"d/m/Y" }}</span>
+                        </td>
+                        <td>{{ order.supplier.name }}</td>
+                        <td><span class="status-pill success">{{ order.get_status_display }}</span></td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="3">Aucune commande enregistree.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          {% endif %}
+
+          {% if workspace.flags.stock %}
+            <section class="panel" id="stock" aria-labelledby="stock-title">
+              <div class="section-head compact">
+                <div>
+                  <span class="eyebrow">Stock</span>
+                  <h2 id="stock-title">Articles critiques</h2>
+                </div>
+                <a class="mini-link" href="/stock/">Ouvrir</a>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Stock</th>
+                      <th>Seuil</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for product in critical_products %}
+                      <tr>
+                        <td>
+                          <strong>{{ product.name }}</strong>
+                          <span>{{ product.code }}</span>
+                        </td>
+                        <td>{{ product.current_stock }}</td>
+                        <td>{{ product.min_stock }}</td>
+                        <td><span class="status-pill stock-{{ product.stock_status }}">{{ product.stock_status_label }}</span></td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="4">Aucun article critique actuellement.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          {% endif %}
+
+          {% if workspace.flags.conversations %}
+            <section class="panel" id="suppliers" aria-labelledby="supplier-title">
+              <div class="section-head compact">
+                <div>
+                  <span class="eyebrow">Fournisseurs</span>
+                  <h2 id="supplier-title">Conversations recentes</h2>
+                </div>
+                <a class="mini-link" href="/conversations/">Ouvrir</a>
+              </div>
+
+              <div class="conversation-list">
+                {% for conversation in recent_conversations %}
+                  <article>
+                    <strong>{{ conversation.request_line.product.name }}</strong>
+                    <span>{{ conversation.supplier.name }} - {{ conversation.get_status_display }}</span>
+                    <small>{{ conversation.updated_at|date:"d/m/Y H:i" }}</small>
+                  </article>
+                {% empty %}
+                  <article>
+                    <strong>Aucune conversation ouverte</strong>
+                    <span>Les discussions apparaissent ici quand un article devient critique ou indisponible.</span>
+                  </article>
+                {% endfor %}
+              </div>
+            </section>
+          {% endif %}
+        </div>
+
+        {% if workspace.flags.admin %}
+          <section class="panel wide-panel" aria-labelledby="admin-title">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Administration</span>
+                <h2 id="admin-title">Pilotage applicatif</h2>
+              </div>
+            </div>
+            <div class="admin-actions">
+              <a class="text-link" href="/accounts/">Comptes et roles</a>
+              <a class="text-link" href="/products/">Articles</a>
+              <a class="text-link" href="/suppliers/">Fournisseurs</a>
+            </div>
+          </section>
+        {% endif %}
+      </main>
+    </div>
   </body>
 </html>

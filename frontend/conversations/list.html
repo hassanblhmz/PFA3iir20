@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Conversations - GestAchats{% endblock %}
+{% block eyebrow %}Fournisseur{% endblock %}
+{% block page_title %}Conversations fournisseur / demandeur{% endblock %}
+{% block page_subtitle %}Discussions ouvertes quand un article est critique, en rupture ou indisponible.{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="conversation-list">
+      {% for conversation in conversations %}
+        <article>
+          <strong><a href="/conversations/{{ conversation.id }}/">{{ conversation.subject }}</a></strong>
+          <span>{{ conversation.purchase_request.reference }} - {{ conversation.supplier.name }} - {{ conversation.get_status_display }}</span>
+          <small>{{ conversation.updated_at|date:"d/m/Y H:i" }}</small>
+        </article>
+      {% empty %}
+        <article>
+          <strong>Aucune conversation</strong>
+          <span>Les conversations apparaissent quand une demande contient un article critique, en rupture ou indisponible.</span>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

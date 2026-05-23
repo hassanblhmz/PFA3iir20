@@ -2,19 +2,24 @@
 Vues pour les demandes d'achat, commandes et réceptions
 """
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 
-from .models import PurchaseRequest, ValidationLog, PurchaseOrder, Reception, AuditLog
+from .models import (
+    PurchaseRequest, ValidationLog, PurchaseOrder, Reception, AuditLog,
+    SupplierRequestConversation, SupplierRequestMessage
+)
 from .serializers import (
     PurchaseRequestSerializer, PurchaseRequestListSerializer,
     PurchaseOrderSerializer, PurchaseOrderListSerializer,
-    ReceptionSerializer, ValidationLogSerializer
+    ReceptionSerializer,
+    SupplierRequestConversationSerializer, SupplierRequestMessageSerializer
 )
-from users.permissions import IsValidateur, IsAdminOrAcheteur, IsMagasinier
+from users.permissions import IsValidateur, IsAdminOrAcheteur
 
 
 def create_audit_log(user, action, entity, entity_id=None, description=''):
@@ -33,7 +38,11 @@ def create_audit_log(user, action, entity, entity_id=None, description=''):
 
 class PurchaseRequestViewSet(viewsets.ModelViewSet):
     """Gestion des demandes d'achat"""
-    queryset = PurchaseRequest.objects.select_related('requested_by').prefetch_related('lines')
+    queryset = PurchaseRequest.objects.select_related('requested_by').prefetch_related(
+        'lines__product',
+        'logs__performed_by',
+        'supplier_conversations__supplier',
+    )
     serializer_class = PurchaseRequestSerializer
     search_fields = ['reference', 'title', 'department']
     filterset_fields = ['status', 'priority', 'requested_by']
@@ -158,7 +167,9 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """Gestion des bons de commande"""
-    queryset = PurchaseOrder.objects.select_related('supplier', 'ordered_by').prefetch_related('order_lines')
+    queryset = PurchaseOrder.objects.select_related(
+        'purchase_request', 'supplier', 'ordered_by'
+    ).prefetch_related('order_lines__product')
     serializer_class = PurchaseOrderSerializer
     search_fields = ['reference', 'supplier__name']
     filterset_fields = ['status', 'supplier']
@@ -193,12 +204,86 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
 class ReceptionViewSet(viewsets.ModelViewSet):
     """Gestion des réceptions"""
-    queryset = Reception.objects.select_related('order', 'received_by')
+    queryset = Reception.objects.select_related('order', 'received_by').prefetch_related(
+        'lines__order_line__product'
+    )
     serializer_class = ReceptionSerializer
     filterset_fields = ['order']
 
     def perform_create(self, serializer):
         serializer.save(received_by=self.request.user)
+
+
+class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
+    """Discussions fournisseur/demandeur pour les articles critiques ou indisponibles"""
+
+    queryset = SupplierRequestConversation.objects.select_related(
+        'purchase_request', 'request_line__product', 'supplier', 'demandeur'
+    ).prefetch_related(
+        Prefetch(
+            'messages',
+            queryset=SupplierRequestMessage.objects.select_related('sender_user', 'sender_supplier'),
+        )
+    )
+    serializer_class = SupplierRequestConversationSerializer
+    search_fields = [
+        'subject', 'purchase_request__reference', 'supplier__name',
+        'request_line__product__name', 'request_line__product__code'
+    ]
+    filterset_fields = ['status', 'trigger', 'supplier', 'demandeur', 'purchase_request']
+    ordering_fields = ['opened_at', 'updated_at']
+
+    def perform_create(self, serializer):
+        purchase_request = serializer.validated_data['purchase_request']
+        serializer.save(demandeur=purchase_request.requested_by)
+        create_audit_log(
+            self.request.user,
+            'supplier_conversation_opened',
+            'SupplierRequestConversation',
+            serializer.instance.id,
+            f"Conversation ouverte pour {serializer.instance.product.name}.",
+        )
+
+    @action(detail=True, methods=['post'])
+    def reply(self, request, pk=None):
+        """Ajouter un message demandeur ou fournisseur a la conversation"""
+        conversation = self.get_object()
+        if conversation.status == 'cloturee':
+            return Response({'error': 'Cette conversation est deja cloturee.'}, status=400)
+        sender_type = request.data.get('sender_type', 'demandeur')
+        data = {
+            'conversation': conversation.id,
+            'sender_type': sender_type,
+            'body': request.data.get('body', ''),
+        }
+
+        if sender_type == 'fournisseur':
+            data['sender_supplier'] = request.data.get('sender_supplier') or conversation.supplier_id
+        else:
+            data['sender_user'] = request.user.id
+
+        serializer = SupplierRequestMessageSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        create_audit_log(
+            request.user,
+            'supplier_conversation_message',
+            'SupplierRequestConversation',
+            conversation.id,
+            f"Message ajoute par {sender_type}.",
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def close(self, request, pk=None):
+        """Cloturer la conversation fournisseur"""
+        conversation = self.get_object()
+        if conversation.status == 'cloturee':
+            return Response({'error': 'Cette conversation est deja cloturee.'}, status=400)
+        conversation.status = 'cloturee'
+        conversation.closed_at = timezone.now()
+        conversation.save(update_fields=['status', 'closed_at', 'updated_at'])
+        return Response({'message': 'Conversation cloturee.', 'status': conversation.status})
 
 
 class DashboardView(viewsets.ViewSet):

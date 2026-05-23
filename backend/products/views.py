@@ -33,6 +33,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         products = Product.objects.filter(
             current_stock__lte=F('min_stock'),
             is_active=True
-        )
+        ).select_related('category')
         serializer = ProductListSerializer(products, many=True)
         return Response({'count': products.count(), 'results': serializer.data})

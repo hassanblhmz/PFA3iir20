@@ -27,7 +27,10 @@ class StockMovement(models.Model):
     stock_after = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='Stock après')
     reference = models.CharField(max_length=50, blank=True, verbose_name='Référence')
     reason = models.CharField(max_length=200, blank=True, verbose_name='Motif')
-    performed_by = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Effectué par')
+    performed_by = models.ForeignKey(
+        User, on_delete=models.PROTECT,
+        related_name='stock_movements', verbose_name='Effectué par'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

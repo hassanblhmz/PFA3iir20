@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}{{ order.reference }} - GestAchats{% endblock %}
+{% block eyebrow %}Commande{% endblock %}
+{% block page_title %}{{ order.reference }}{% endblock %}
+{% block page_subtitle %}{{ order.supplier.name }} - {{ order.get_status_display }}{% endblock %}
+{% block page_actions %}
+  <a class="text-link" href="/orders/">Retour commandes</a>
+  {% if can_manage_orders and order.status == "brouillon" %}
+    <form method="post" action="/orders/{{ order.id }}/send/" class="inline-form">{% csrf_token %}<button type="submit">Envoyer</button></form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <div class="content-grid">
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <span class="eyebrow">Lignes</span>
+          <h2>Articles commandes</h2>
+        </div>
+        <span class="status-pill success">{{ order.get_status_display }}</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th>Commandee</th>
+              <th>Recue</th>
+              <th>Prix</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in order.order_lines.all %}
+              <tr>
+                <td>
+                  <strong>{{ line.product.name }}</strong>
+                  <span>{{ line.product.code }}</span>
+                </td>
+                <td>{{ line.quantity_ordered }}</td>
+                <td>{{ line.quantity_received }}</td>
+                <td>{{ line.unit_price }}</td>
+                <td>{{ line.total_price }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {% if can_manage_stock %}
+      <section class="panel">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">Reception</span>
+            <h2>Enregistrer une reception</h2>
+          </div>
+        </div>
+        <form method="post" action="/orders/{{ order.id }}/receive/" class="entity-form compact-form">
+          {% csrf_token %}
+          {% for field in reception_form %}
+            <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+          {% endfor %}
+          <button type="submit">Receptionner</button>
+        </form>
+      </section>
+    {% endif %}
+  </div>
+
+  <section class="panel wide-panel">
+    <div class="section-head compact">
+      <div>
+        <span class="eyebrow">Receptions</span>
+        <h2>Historique des receptions</h2>
+      </div>
+    </div>
+    <div class="timeline">
+      {% for reception in order.receptions.all %}
+        <article>
+          <strong>{{ reception.reference|default:"Reception" }}</strong>
+          <span>{{ reception.received_by.full_name }} - {{ reception.received_at|date:"d/m/Y H:i" }}</span>
+          <p>{{ reception.notes|default:"-" }}</p>
+        </article>
+      {% empty %}
+        <article><strong>Aucune reception</strong><span>La commande n'a pas encore ete receptionnee.</span></article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

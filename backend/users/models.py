@@ -16,10 +16,19 @@ class User(AbstractUser):
         ('acheteur', 'Acheteur'),
         ('magasinier', 'Magasinier'),
         ('direction', 'Direction'),
+        ('fournisseur', 'Fournisseur'),
     ]
 
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='demandeur')
+    supplier = models.ForeignKey(
+        'suppliers.Supplier',
+        on_delete=models.SET_NULL,
+        related_name='users',
+        null=True,
+        blank=True,
+        verbose_name='Fournisseur lie',
+    )
     phone = models.CharField(max_length=20, blank=True)
     department = models.CharField(max_length=100, blank=True)
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)

@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db import transaction
 from django.db.models import F
 
 from .models import StockMovement
@@ -30,29 +31,31 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
         quantity = data['quantity']
         move_type = data['type']
 
-        stock_before = product.current_stock
+        with transaction.atomic():
+            product = Product.objects.select_for_update().get(pk=product.pk)
+            stock_before = product.current_stock
 
-        if move_type == 'entree':
-            product.current_stock += quantity
-        elif move_type == 'sortie':
-            if product.current_stock < quantity:
-                return Response({'error': 'Stock insuffisant.'}, status=400)
-            product.current_stock -= quantity
-        elif move_type == 'ajustement':
-            product.current_stock = quantity  # Ajustement direct à la valeur
+            if move_type == 'entree':
+                product.current_stock += quantity
+            elif move_type == 'sortie':
+                if product.current_stock < quantity:
+                    return Response({'error': 'Stock insuffisant.'}, status=400)
+                product.current_stock -= quantity
+            elif move_type == 'ajustement':
+                product.current_stock = quantity
 
-        product.save()
+            product.save(update_fields=['current_stock', 'updated_at'])
 
-        movement = StockMovement.objects.create(
-            product=product,
-            type=move_type,
-            quantity=quantity,
-            stock_before=stock_before,
-            stock_after=product.current_stock,
-            reason=data.get('reason', ''),
-            reference=data.get('reference', ''),
-            performed_by=request.user
-        )
+            movement = StockMovement.objects.create(
+                product=product,
+                type=move_type,
+                quantity=quantity,
+                stock_before=stock_before,
+                stock_after=product.current_stock,
+                reason=data.get('reason', ''),
+                reference=data.get('reference', ''),
+                performed_by=request.user
+            )
 
         return Response(StockMovementSerializer(movement).data, status=201)
 
@@ -61,7 +64,7 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
         """Articles en stock critique"""
         products = Product.objects.filter(
             current_stock__lte=F('min_stock'), is_active=True
-        ).order_by('current_stock')
+        ).select_related('category').order_by('current_stock')
         serializer = ProductListSerializer(products, many=True)
         return Response({
             'count': products.count(),

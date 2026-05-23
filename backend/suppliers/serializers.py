@@ -11,7 +11,7 @@ class SupplierSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_orders_count(self, obj):
-        return obj.purchaseorder_set.count()
+        return obj.purchase_orders.count()
 
 
 class SupplierListSerializer(serializers.ModelSerializer):

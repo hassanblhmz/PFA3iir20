@@ -8,7 +8,7 @@ from users.permissions import IsAdminOrReadOnly
 
 class SupplierViewSet(viewsets.ModelViewSet):
     """CRUD complet pour les fournisseurs"""
-    queryset = Supplier.objects.all()
+    queryset = Supplier.objects.prefetch_related('purchase_orders')
     serializer_class = SupplierSerializer
     permission_classes = [IsAdminOrReadOnly]
     search_fields = ['name', 'code', 'email', 'city']

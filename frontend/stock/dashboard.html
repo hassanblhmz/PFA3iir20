@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Stock - GestAchats{% endblock %}
+{% block eyebrow %}Approvisionnement{% endblock %}
+{% block page_title %}Stock{% endblock %}
+{% block page_subtitle %}Surveillez les ruptures, articles critiques et mouvements de stock.{% endblock %}
+
+{% block content %}
+  <div class="content-grid">
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <span class="eyebrow">Alertes</span>
+          <h2>Critique ou rupture</h2>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th>Stock</th>
+              <th>Seuil</th>
+              <th>Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product in critical_products %}
+              <tr>
+                <td>
+                  <strong>{{ product.name }}</strong>
+                  <span>{{ product.code }}</span>
+                </td>
+                <td>{{ product.current_stock }}</td>
+                <td>{{ product.min_stock }}</td>
+                <td><span class="status-pill stock-{{ product.stock_status }}">{{ product.stock_status_label }}</span></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4">Aucune alerte stock.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {% if can_manage_stock %}
+      <section class="panel">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">Ajustement</span>
+            <h2>Mouvement manuel</h2>
+          </div>
+        </div>
+        <form method="post" action="/stock/adjust/" class="entity-form compact-form">
+          {% csrf_token %}
+          {% for field in form %}
+            <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+          {% endfor %}
+          <button type="submit">Enregistrer mouvement</button>
+        </form>
+      </section>
+    {% endif %}
+  </div>
+
+  <section class="panel wide-panel">
+    <div class="section-head compact">
+      <div>
+        <span class="eyebrow">Tracabilite</span>
+        <h2>Derniers mouvements</h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Article</th>
+            <th>Type</th>
+            <th>Quantite</th>
+            <th>Avant</th>
+            <th>Apres</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in movements %}
+            <tr>
+              <td>{{ movement.created_at|date:"d/m/Y H:i" }}</td>
+              <td>{{ movement.product.name }}</td>
+              <td>{{ movement.get_type_display }}</td>
+              <td>{{ movement.quantity }}</td>
+              <td>{{ movement.stock_before }}</td>
+              <td>{{ movement.stock_after }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">Aucun mouvement.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

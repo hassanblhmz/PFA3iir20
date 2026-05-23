@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Articles - GestAchats{% endblock %}
+{% block eyebrow %}Referentiel{% endblock %}
+{% block page_title %}Articles{% endblock %}
+{% block page_subtitle %}Les statuts critique et rupture sont calcules automatiquement depuis le stock et le seuil minimum.{% endblock %}
+{% block page_actions %}
+  {% if can_manage_products %}<a class="text-link primary-link" href="/products/new/">Ajouter article</a>{% endif %}
+  <a class="text-link" href="/products/?status=critique">Critiques</a>
+  <a class="text-link" href="/products/?status=rupture">Ruptures</a>
+  <a class="text-link" href="/products/?status=indisponible">Indisponibles</a>
+{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Article</th>
+            <th>Categorie</th>
+            <th>Stock</th>
+            <th>Seuil</th>
+            <th>Statut</th>
+            <th>Fournisseurs</th>
+            {% if can_manage_products %}<th>Action</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in products %}
+            <tr>
+              <td>
+                <strong>{{ product.name }}</strong>
+                <span>{{ product.code }}</span>
+              </td>
+              <td>{{ product.category|default:"-" }}</td>
+              <td>{{ product.current_stock }} {{ product.unit }}</td>
+              <td>{{ product.min_stock }}</td>
+              <td><span class="status-pill stock-{{ product.stock_status }}">{{ product.stock_status_label }}</span></td>
+              <td>
+                {% for supplier in product.suppliers.all %}
+                  <span>{{ supplier.name }}</span>
+                {% empty %}
+                  <span>-</span>
+                {% endfor %}
+              </td>
+              {% if can_manage_products %}
+                <td><a class="mini-link" href="/products/{{ product.id }}/edit/">Modifier</a></td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="7">Aucun article trouve.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

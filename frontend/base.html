@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}GestAchats{% endblock %}</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation principale">
+        <a class="brand" href="/" aria-label="GestAchats accueil">
+          <span class="brand-mark" aria-hidden="true">GA</span>
+          <span>
+            <strong>GestAchats</strong>
+            <small>{{ request.user.get_role_display }}</small>
+          </span>
+        </a>
+
+        <nav class="nav-list">
+          <a href="/">Tableau de bord</a>
+          {% if workspace.flags.users %}<a href="/accounts/">Comptes</a>{% endif %}
+          {% if workspace.flags.requests %}<a href="/requests/">Demandes</a>{% endif %}
+          {% if workspace.flags.orders %}<a href="/orders/">Commandes</a>{% endif %}
+          {% if workspace.flags.stock %}<a href="/stock/">Stock</a>{% endif %}
+          {% if workspace.flags.suppliers %}<a href="/suppliers/">Fournisseurs</a>{% endif %}
+          {% if workspace.flags.products %}<a href="/products/">Articles</a>{% endif %}
+          {% if workspace.flags.conversations %}<a href="/conversations/">Conversations</a>{% endif %}
+        </nav>
+
+        <section class="operator-panel" aria-label="Session active">
+          <span class="eyebrow">Session</span>
+          <strong>{{ request.user.full_name }}</strong>
+          <p>{{ request.user.email }}</p>
+          <p>{{ request.user.get_role_display }}</p>
+          <form method="post" action="/logout/" class="logout-form">
+            {% csrf_token %}
+            <button type="submit">Se deconnecter</button>
+          </form>
+        </section>
+      </aside>
+
+      <main class="main">
+        {% if messages %}
+          <div class="message-stack" aria-label="Messages systeme">
+            {% for message in messages %}
+              <div class="alert {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <header class="workspace-header">
+          <div>
+            <span class="eyebrow">{% block eyebrow %}GestAchats{% endblock %}</span>
+            <h1>{% block page_title %}Gestion des achats{% endblock %}</h1>
+            <p>{% block page_subtitle %}Pilotage des achats et approvisionnements.{% endblock %}</p>
+          </div>
+          <div class="header-actions">
+            {% block page_actions %}{% endblock %}
+          </div>
+        </header>
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

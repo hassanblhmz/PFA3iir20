@@ -1,0 +1,194 @@
+GESTACHATS - DESCRIPTION DU PROJET ET ROLES UTILISATEURS
+
+1. Objectif general du projet------------------------------------------------------------------------------
+
+GestAchats est une application de gestion des achats et des approvisionnements.
+Elle permet a une organisation de suivre tout le cycle d'achat, depuis la
+creation d'une demande jusqu'a la reception de la commande et la mise a jour du
+stock.
+
+Le projet sert principalement a :
+
+- Centraliser les demandes d'achat.
+- Valider ou rejeter les demandes selon les roles.
+- Gerer les articles, fournisseurs et commandes.
+- Suivre les receptions et les mouvements de stock.
+- Detecter les articles critiques, en rupture ou indisponibles.
+- Permettre une communication entre demandeur et fournisseur lorsqu'un article
+  pose probleme.
+- Donner a chaque utilisateur un espace adapte a son role.
+
+
+2. Hierarchie generale des roles--------------------------------------------------------------------------
+
+La hierarchie fonctionnelle des roles est la suivante :
+
+1. Administrateur
+   Role le plus eleve. Il supervise toute l'application et gere les comptes.
+
+2. Direction
+   Role de supervision. Il consulte les indicateurs globaux et suit les risques.
+
+3. Validateur
+   Role de controle. Il valide ou rejette les demandes d'achat.
+
+4. Acheteur
+   Role operationnel achats. Il gere les fournisseurs, articles et commandes.
+
+5. Magasinier
+   Role operationnel stock. Il receptionne les commandes et ajuste le stock.
+
+6. Demandeur
+   Role de base cote besoin. Il cree et suit ses demandes d'achat.
+
+7. Fournisseur
+   Role externe. Il recoit les commandes, confirme ou refuse, propose un devis
+   et suit la livraison.
+
+
+3. Ce que chaque role peut faire---------------------------------------------------------------------------
+
+--------ADMINISTRATEUR
+
+L'administrateur peut :
+
+- Acceder a l'ensemble de l'application.
+- Consulter le tableau de bord global.
+- Gerer les comptes utilisateurs.
+- Voir les demandes d'achat.
+- Voir les commandes.
+- Voir les articles.
+- Voir les fournisseurs.
+- Voir les mouvements de stock.
+- Acceder aux conversations fournisseur/demandeur.
+- Utiliser l'administration Django.
+- Superviser les roles et les acces.
+
+
+--------DIRECTION
+
+La direction peut :
+
+- Consulter une vue globale du pipeline achats.
+- Suivre les demandes importantes ou urgentes.
+- Voir les commandes et les risques lies au stock.
+- Identifier les articles critiques ou en rupture.
+- Consulter les indicateurs du tableau de bord.
+
+La direction a surtout un role de lecture et de pilotage.
+
+
+--------VALIDATEUR
+
+Le validateur peut :
+
+- Consulter les demandes soumises.
+- Analyser les details d'une demande d'achat.
+- Valider une demande.
+- Rejeter une demande avec un commentaire.
+- Consulter l'historique des validations et rejets.
+- Suivre les demandes en attente de decision.
+
+Le validateur intervient apres la creation et la soumission d'une demande.
+
+
+--------ACHETEUR
+
+L'acheteur peut :
+
+- Consulter les demandes validees.
+- Creer une commande a partir d'une demande validee.
+- Envoyer une commande au fournisseur.
+- Gerer les articles.
+- Ajouter ou modifier des articles.
+- Gerer les fournisseurs.
+- Ajouter ou modifier des fournisseurs.
+- Participer aux conversations avec les fournisseurs.
+- Suivre les commandes en cours.
+
+L'acheteur transforme les besoins valides en commandes concretes.
+
+
+--------MAGASINIER
+
+Le magasinier peut :
+
+- Consulter les commandes a receptionner.
+- Enregistrer une reception de commande.
+- Mettre a jour le stock apres reception.
+- Faire des ajustements de stock.
+- Voir les mouvements de stock.
+- Surveiller les articles critiques.
+- Controler les ruptures et les niveaux de stock.
+
+Le magasinier est responsable de la partie stock et reception.
+
+
+--------DEMANDEUR
+
+Le demandeur peut :
+
+- Creer une demande d'achat.
+- Ajouter des lignes/articles a sa demande.
+- Soumettre sa demande pour validation.
+- Suivre le statut de ses demandes.
+- Consulter les articles disponibles.
+- Ouvrir une conversation avec un fournisseur si un article est critique, en
+  rupture ou indisponible.
+- Repondre aux conversations liees a ses demandes.
+
+Le demandeur exprime le besoin initial d'achat.
+
+
+--------FOURNISSEUR
+
+Le fournisseur peut :
+
+- Voir les commandes envoyees a son entreprise.
+- Consulter les articles, quantites et prix de chaque commande.
+- Soumettre un devis avec montant propose.
+- Proposer une date de livraison.
+- Ajouter une reference de document, comme devis, facture ou bon de livraison.
+- Confirmer une commande recue.
+- Refuser une commande si elle ne peut pas etre traitee.
+- Mettre a jour le statut de livraison : en preparation, expediee ou livree.
+- Voir les conversations qui le concernent.
+- Repondre aux messages du demandeur.
+- Donner des informations sur la disponibilite, le delai ou les alternatives.
+- Participer uniquement aux echanges lies a ses propres articles ou demandes.
+
+Le fournisseur est un acteur externe qui intervient apres l'envoi de la
+commande par l'acheteur. Il peut confirmer la commande, transmettre les
+informations de devis et suivre la livraison jusqu'a la reception par le
+magasinier.
+
+
+4. Cycle principal d'utilisation--------------------------------------------------------------------------
+
+1. Le demandeur cree une demande d'achat.
+2. Le demandeur ajoute les articles et quantites souhaitees.
+3. Le demandeur soumet la demande.
+4. Le validateur analyse la demande.
+5. Le validateur accepte ou rejette la demande.
+6. Si la demande est validee, l'acheteur cree une commande.
+7. L'acheteur envoie la commande au fournisseur.
+8. Le fournisseur consulte la commande dans son espace.
+9. Le fournisseur soumet un devis ou confirme la commande.
+10. Le fournisseur met a jour le statut de livraison.
+11. Le magasinier receptionne la commande.
+12. Le stock est mis a jour automatiquement.
+13. Les mouvements de stock sont conserves pour le suivi.
+
+
+5. Resume simple--------------------------------------------------------------------------------------------
+
+GestAchats organise les achats de l'entreprise en separant clairement les
+responsabilites :
+
+- Le demandeur exprime le besoin.
+- Le validateur controle le besoin.
+- L'acheteur passe la commande.
+- Le fournisseur confirme, propose un devis et suit la livraison.
+- Le magasinier receptionne et met a jour le stock.
+- La direction supervise.
+- L'administrateur gere toute l'application.

@@ -14,6 +14,7 @@
             <th>Reference</th>
             <th>Fournisseur</th>
             <th>Statut</th>
+            <th>Reponse fournisseur</th>
             <th>Date prevue</th>
             <th>Total</th>
           </tr>
@@ -27,11 +28,12 @@
               </td>
               <td>{{ order.supplier.name }}</td>
               <td><span class="status-pill success">{{ order.get_status_display }}</span></td>
-              <td>{{ order.expected_date|default:"-" }}</td>
+              <td><span class="status-pill info">{{ order.get_supplier_response_status_display }}</span></td>
+              <td>{{ order.effective_delivery_date|default:"-" }}</td>
               <td>{{ order.total_amount }}</td>
             </tr>
           {% empty %}
-            <tr><td colspan="5">Aucune commande trouvee.</td></tr>
+            <tr><td colspan="6">Aucune commande trouvee.</td></tr>
           {% endfor %}
         </tbody>
       </table>

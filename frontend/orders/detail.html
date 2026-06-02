@@ -9,6 +9,9 @@
   {% if can_manage_orders and order.status == "brouillon" %}
     <form method="post" action="/orders/{{ order.id }}/send/" class="inline-form">{% csrf_token %}<button type="submit">Envoyer</button></form>
   {% endif %}
+  {% if can_supplier_manage_orders and order.status == "envoyee" %}
+    <form method="post" action="/orders/{{ order.id }}/supplier-confirm/" class="inline-form">{% csrf_token %}<button type="submit">Confirmer</button></form>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -67,6 +70,62 @@
         </form>
       </section>
     {% endif %}
+
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <span class="eyebrow">Fournisseur</span>
+          <h2>Reponse et livraison</h2>
+        </div>
+        <span class="status-pill info">{{ order.get_supplier_response_status_display }}</span>
+      </div>
+
+      <div class="timeline">
+        <article>
+          <strong>Devis / confirmation</strong>
+          <span>Montant: {{ order.supplier_quote_amount|default:"-" }}</span>
+          <span>Date proposee: {{ order.supplier_delivery_date|default:"-" }}</span>
+          <span>Document: {{ order.supplier_document_reference|default:"-" }}</span>
+          <p>{{ order.supplier_note|default:"Aucune note fournisseur." }}</p>
+        </article>
+      </div>
+
+      {% if can_supplier_manage_orders and order.status != "annulee" and order.status != "recue" and order.status != "cloturee" %}
+        <form method="post" action="/orders/{{ order.id }}/supplier-quote/" class="entity-form compact-form">
+          {% csrf_token %}
+          <h3>Soumettre devis</h3>
+          {% for field in supplier_response_form %}
+            <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+          {% endfor %}
+          <button type="submit">Envoyer devis</button>
+        </form>
+
+        {% if order.status == "envoyee" or order.status == "confirmee" %}
+          <div class="form-actions">
+            <form method="post" action="/orders/{{ order.id }}/supplier-confirm/" class="inline-form">
+              {% csrf_token %}
+              <button type="submit">Confirmer commande</button>
+            </form>
+            <form method="post" action="/orders/{{ order.id }}/supplier-reject/" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="supplier_note" value="Commande refusee par le fournisseur.">
+              <button type="submit" class="danger-button">Refuser</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if order.status == "confirmee" or order.status == "expediee" %}
+          <form method="post" action="/orders/{{ order.id }}/supplier-status/" class="entity-form compact-form">
+            {% csrf_token %}
+            <h3>Mettre a jour livraison</h3>
+            {% for field in supplier_status_form %}
+              <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+            {% endfor %}
+            <button type="submit">Mettre a jour</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </section>
   </div>
 
   <section class="panel wide-panel">

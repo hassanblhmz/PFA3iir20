@@ -20,8 +20,8 @@ class POLineInline(admin.TabularInline):
 
 @admin.register(PurchaseOrder)
 class POAdmin(admin.ModelAdmin):
-    list_display = ['reference', 'supplier', 'status', 'ordered_by', 'created_at']
-    list_filter = ['status']
+    list_display = ['reference', 'supplier', 'status', 'supplier_response_status', 'ordered_by', 'created_at']
+    list_filter = ['status', 'supplier_response_status']
     inlines = [POLineInline]
 
 @admin.register(ValidationLog)

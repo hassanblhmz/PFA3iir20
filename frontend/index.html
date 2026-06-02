@@ -57,6 +57,8 @@
               <a class="text-link primary-link" href="/products/new/">Nouvel article</a>
             {% elif can_manage_stock %}
               <a class="text-link primary-link" href="/stock/">Stock</a>
+            {% elif can_supplier_manage_orders %}
+              <a class="text-link primary-link" href="/orders/">Commandes</a>
             {% else %}
               <a class="text-link primary-link" href="/requests/">Demandes</a>
             {% endif %}

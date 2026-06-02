@@ -11,7 +11,7 @@ from suppliers.serializers import SupplierSerializer
 from stock.models import StockMovement
 
 
-ALLOWED_RECEPTION_ORDER_STATUSES = ['envoyee', 'confirmee', 'recue_partielle']
+ALLOWED_RECEPTION_ORDER_STATUSES = ['envoyee', 'confirmee', 'expediee', 'recue_partielle']
 
 
 def create_audit_log(user, action, entity, entity_id=None, description=''):
@@ -276,7 +276,10 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'reference', 'purchase_request', 'supplier', 'supplier_name',
             'status', 'status_display', 'ordered_by', 'ordered_by_name',
-            'expected_date', 'notes', 'order_lines',
+            'expected_date', 'notes', 'supplier_response_status',
+            'supplier_quote_amount', 'supplier_delivery_date',
+            'supplier_document_reference', 'supplier_note',
+            'supplier_responded_at', 'order_lines',
             'total_amount', 'created_at', 'updated_at', 'sent_at'
         ]
         read_only_fields = [
@@ -317,7 +320,9 @@ class PurchaseOrderListSerializer(serializers.ModelSerializer):
         model = PurchaseOrder
         fields = [
             'id', 'reference', 'supplier', 'supplier_name', 'status',
-            'total_amount', 'lines_count', 'expected_date', 'created_at'
+            'supplier_response_status', 'supplier_quote_amount',
+            'supplier_delivery_date', 'total_amount', 'lines_count',
+            'expected_date', 'created_at'
         ]
 
     def get_lines_count(self, obj):

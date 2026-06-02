@@ -3,7 +3,7 @@ from django.db.models import F, Q
 
 from products.models import Category, Product
 from purchases.models import (
-    PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine,
+    PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine,
     SupplierRequestMessage,
 )
 from stock.models import StockMovement
@@ -145,6 +145,42 @@ class ReceptionForm(StyledFormMixin, forms.Form):
     def __init__(self, order, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['order_line'].queryset = order.order_lines.select_related('product').order_by('product__name')
+        self._style_fields()
+
+
+class SupplierOrderResponseForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = PurchaseOrder
+        fields = [
+            'supplier_quote_amount', 'supplier_delivery_date',
+            'supplier_document_reference', 'supplier_note',
+        ]
+        widgets = {
+            'supplier_delivery_date': forms.DateInput(attrs={'type': 'date'}),
+            'supplier_note': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['supplier_quote_amount'].label = 'Montant propose'
+        self.fields['supplier_delivery_date'].label = 'Date de livraison proposee'
+        self.fields['supplier_document_reference'].label = 'Reference devis / facture / BL'
+        self.fields['supplier_document_reference'].required = False
+        self.fields['supplier_note'].label = 'Note fournisseur'
+        self.fields['supplier_note'].required = False
+        self._style_fields()
+
+
+class SupplierDeliveryStatusForm(StyledFormMixin, forms.Form):
+    status = forms.ChoiceField(label='Statut livraison', choices=[
+        ('preparation', 'En preparation'),
+        ('expediee', 'Expediee'),
+        ('livree', 'Livree'),
+    ])
+    note = forms.CharField(label='Note', required=False, widget=forms.Textarea(attrs={'rows': 2}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._style_fields()
 
 

@@ -1,5 +1,5 @@
-"""
-Modèles pour les demandes d'achat et commandes
+﻿"""
+ModÃ¨les pour les demandes d'achat et commandes
 """
 from django.db import models
 from django.utils import timezone
@@ -15,9 +15,9 @@ class PurchaseRequest(models.Model):
         ('brouillon', 'Brouillon'),
         ('soumis', 'Soumis'),
         ('en_validation', 'En validation'),
-        ('valide', 'Validé'),
-        ('rejete', 'Rejeté'),
-        ('commande', 'Commandé'),
+        ('valide', 'ValidÃ©'),
+        ('rejete', 'RejetÃ©'),
+        ('commande', 'CommandÃ©'),
     ]
 
     reference = models.CharField(max_length=30, unique=True, blank=True)
@@ -30,10 +30,10 @@ class PurchaseRequest(models.Model):
     )
     requested_by = models.ForeignKey(
         User, on_delete=models.PROTECT, related_name='purchase_requests',
-        verbose_name='Demandé par'
+        verbose_name='DemandÃ© par'
     )
-    department = models.CharField(max_length=100, blank=True, verbose_name='Département')
-    needed_date = models.DateField(null=True, blank=True, verbose_name='Date souhaitée')
+    department = models.CharField(max_length=100, blank=True, verbose_name='DÃ©partement')
+    needed_date = models.DateField(null=True, blank=True, verbose_name='Date souhaitÃ©e')
     notes = models.TextField(blank=True, verbose_name='Remarques')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -48,7 +48,7 @@ class PurchaseRequest(models.Model):
         return f"{self.reference} - {self.title}"
 
     def save(self, *args, **kwargs):
-        # Génération automatique de la référence
+        # GÃ©nÃ©ration automatique de la rÃ©fÃ©rence
         if not self.reference:
             year = timezone.now().year
             count = PurchaseRequest.objects.filter(
@@ -74,8 +74,8 @@ class PurchaseRequestLine(models.Model):
         related_name='request_lines',
         verbose_name='Article'
     )
-    quantity = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='Quantité')
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name='Prix unitaire estimé')
+    quantity = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='QuantitÃ©')
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name='Prix unitaire estimÃ©')
     notes = models.CharField(max_length=200, blank=True)
 
     class Meta:
@@ -389,16 +389,27 @@ class AuditLog(models.Model):
 
 
 class PurchaseOrder(models.Model):
-    """Bon de commande généré depuis une demande validée"""
+    """Bon de commande gÃ©nÃ©rÃ© depuis une demande validÃ©e"""
 
     STATUS_CHOICES = [
         ('brouillon', 'Brouillon'),
-        ('envoyee', 'Envoyée'),
-        ('confirmee', 'Confirmée'),
-        ('recue_partielle', 'Reçue partiellement'),
-        ('recue', 'Reçue totalement'),
-        ('cloturee', 'Clôturée'),
-        ('annulee', 'Annulée'),
+        ('envoyee', 'EnvoyÃ©e'),
+        ('confirmee', 'ConfirmÃ©e'),
+        ('expediee', 'Expediee'),
+        ('recue_partielle', 'ReÃ§ue partiellement'),
+        ('recue', 'ReÃ§ue totalement'),
+        ('cloturee', 'ClÃ´turÃ©e'),
+        ('annulee', 'AnnulÃ©e'),
+    ]
+
+    SUPPLIER_RESPONSE_CHOICES = [
+        ('en_attente', 'En attente fournisseur'),
+        ('devis_envoye', 'Devis envoye'),
+        ('confirmee', 'Confirmee par fournisseur'),
+        ('refusee', 'Refusee par fournisseur'),
+        ('preparation', 'En preparation'),
+        ('expediee', 'Expediee'),
+        ('livree', 'Livree'),
     ]
 
     reference = models.CharField(max_length=30, unique=True, blank=True)
@@ -415,11 +426,36 @@ class PurchaseOrder(models.Model):
     ordered_by = models.ForeignKey(
         User, on_delete=models.PROTECT, related_name='purchase_orders'
     )
-    expected_date = models.DateField(null=True, blank=True, verbose_name='Livraison prévue')
+    expected_date = models.DateField(null=True, blank=True, verbose_name='Livraison prÃ©vue')
     notes = models.TextField(blank=True)
+    supplier_response_status = models.CharField(
+        max_length=20,
+        choices=SUPPLIER_RESPONSE_CHOICES,
+        default='en_attente',
+        verbose_name='Statut fournisseur',
+    )
+    supplier_quote_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='Montant devis fournisseur',
+    )
+    supplier_delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name='Date livraison proposee',
+    )
+    supplier_document_reference = models.CharField(
+        max_length=120,
+        blank=True,
+        verbose_name='Reference devis/facture/BL',
+    )
+    supplier_note = models.TextField(blank=True, verbose_name='Note fournisseur')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     sent_at = models.DateTimeField(null=True, blank=True)
+    supplier_responded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = 'Commande'
@@ -441,6 +477,10 @@ class PurchaseOrder(models.Model):
     @property
     def total_amount(self):
         return sum(line.total_price for line in self.order_lines.all())
+
+    @property
+    def effective_delivery_date(self):
+        return self.supplier_delivery_date or self.expected_date
 
 
 class PurchaseOrderLine(models.Model):
@@ -469,7 +509,7 @@ class PurchaseOrderLine(models.Model):
 
 
 class Reception(models.Model):
-    """Réception partielle ou totale d'une commande"""
+    """RÃ©ception partielle ou totale d'une commande"""
 
     order = models.ForeignKey(
         PurchaseOrder, on_delete=models.PROTECT,
@@ -481,12 +521,12 @@ class Reception(models.Model):
     received_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = 'Réception'
+        verbose_name = 'RÃ©ception'
         ordering = ['-received_at']
 
 
 class ReceptionLine(models.Model):
-    """Ligne d'une réception"""
+    """Ligne d'une rÃ©ception"""
 
     reception = models.ForeignKey(
         Reception, on_delete=models.CASCADE,
@@ -495,3 +535,5 @@ class ReceptionLine(models.Model):
     order_line = models.ForeignKey(PurchaseOrderLine, on_delete=models.PROTECT, related_name='reception_lines')
     quantity_received = models.DecimalField(max_digits=12, decimal_places=2)
     notes = models.CharField(max_length=200, blank=True)
+
+

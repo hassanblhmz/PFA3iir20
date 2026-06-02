@@ -15,7 +15,8 @@ from django.views.generic import TemplateView
 from core.forms import (
     ConversationOpenForm, ConversationReplyForm, CreateOrderForm,
     ProductForm, PurchaseRequestForm, PurchaseRequestLineForm,
-    ReceptionForm, RequestDecisionForm, StockAdjustmentForm, SupplierForm,
+    ReceptionForm, RequestDecisionForm, StockAdjustmentForm,
+    SupplierDeliveryStatusForm, SupplierForm, SupplierOrderResponseForm,
 )
 from products.models import Product
 from purchases.models import (
@@ -153,14 +154,16 @@ ROLE_WORKSPACES = {
     },
     'fournisseur': {
         'title': 'Espace fournisseur',
-        'subtitle': 'Reponses aux demandes concernant les articles critiques ou indisponibles.',
+        'subtitle': 'Commandes recues, confirmations, devis et suivi livraison.',
         'capabilities': [
+            'Voir les commandes envoyees a votre societe',
+            'Soumettre un devis ou confirmer une commande',
+            'Mettre a jour la preparation et la livraison',
             'Voir les conversations ouvertes avec les demandeurs',
             'Repondre sur disponibilite, delais et alternatives',
-            'Suivre les demandes liees au fournisseur',
         ],
-        'endpoints': ['/api/purchases/supplier-conversations/'],
-        'flags': {'conversations': True},
+        'endpoints': ['/api/purchases/orders/', '/api/purchases/supplier-conversations/'],
+        'flags': {'orders': True, 'conversations': True},
     },
 }
 
@@ -192,6 +195,7 @@ def app_context(request, **extra):
         'can_create_requests': has_role(request.user, 'demandeur'),
         'can_validate_requests': has_role(request.user, 'validateur'),
         'can_manage_orders': has_role(request.user, 'acheteur'),
+        'can_supplier_manage_orders': request.user.is_authenticated and request.user.role == 'fournisseur',
         'can_manage_stock': has_role(request.user, 'magasinier'),
         'can_use_conversations': has_role(request.user, 'demandeur', 'acheteur', 'fournisseur'),
     }
@@ -254,10 +258,16 @@ class HomeView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context.update(app_context(self.request))
         workspace = workspace_for(self.request.user)
+        recent_orders = PurchaseOrder.objects.select_related('supplier', 'ordered_by').order_by('-created_at')
+        if self.request.user.role == 'fournisseur':
+            if self.request.user.supplier_id:
+                recent_orders = recent_orders.filter(supplier=self.request.user.supplier).exclude(status='brouillon')
+            else:
+                recent_orders = recent_orders.none()
         context['workspace'] = workspace
         context['metrics'] = {
             'open_requests': PurchaseRequest.objects.filter(status__in=['soumis', 'en_validation', 'valide']).count(),
-            'sent_orders': PurchaseOrder.objects.filter(status__in=['envoyee', 'confirmee', 'recue_partielle']).count(),
+            'sent_orders': PurchaseOrder.objects.filter(status__in=['envoyee', 'confirmee', 'expediee', 'recue_partielle']).count(),
             'critical_products': Product.objects.filter(
                 Q(current_stock__lte=F('min_stock')) | Q(is_active=False)
             ).count(),
@@ -269,7 +279,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             Q(current_stock__lte=F('min_stock')) | Q(is_active=False)
         ).select_related('category').order_by('current_stock')[:5]
         context['recent_requests'] = PurchaseRequest.objects.select_related('requested_by').order_by('-created_at')[:5]
-        context['recent_orders'] = PurchaseOrder.objects.select_related('supplier', 'ordered_by').order_by('-created_at')[:5]
+        context['recent_orders'] = recent_orders[:5]
         context['recent_conversations'] = SupplierRequestConversation.objects.select_related(
             'supplier', 'demandeur', 'request_line__product'
         ).order_by('-updated_at')[:4]
@@ -534,9 +544,22 @@ def request_create_order(request, pk):
     return redirect(f'/requests/{pk}/')
 
 
+def require_supplier_order_access(user, order):
+    if user.role == 'fournisseur':
+        if not user.supplier_id or order.supplier_id != user.supplier_id:
+            raise PermissionDenied
+    elif not has_role(user, 'acheteur', 'magasinier', 'direction'):
+        raise PermissionDenied
+
+
 @login_required(login_url='login')
 def order_list(request):
     orders = PurchaseOrder.objects.select_related('supplier', 'ordered_by', 'purchase_request').prefetch_related('order_lines__product')
+    if request.user.role == 'fournisseur':
+        if not request.user.supplier_id:
+            orders = orders.none()
+        else:
+            orders = orders.filter(supplier=request.user.supplier).exclude(status='brouillon')
     return render(request, 'orders/list.html', app_context(request, orders=orders.order_by('-created_at')))
 
 
@@ -548,8 +571,17 @@ def order_detail(request, pk):
         ),
         pk=pk,
     )
+    require_supplier_order_access(request.user, order)
     reception_form = ReceptionForm(order)
-    return render(request, 'orders/detail.html', app_context(request, order=order, reception_form=reception_form))
+    supplier_response_form = SupplierOrderResponseForm(instance=order)
+    supplier_status_form = SupplierDeliveryStatusForm(initial={'status': order.supplier_response_status})
+    return render(request, 'orders/detail.html', app_context(
+        request,
+        order=order,
+        reception_form=reception_form,
+        supplier_response_form=supplier_response_form,
+        supplier_status_form=supplier_status_form,
+    ))
 
 
 @login_required(login_url='login')
@@ -565,10 +597,81 @@ def order_send(request, pk):
 
 
 @login_required(login_url='login')
+def order_supplier_quote(request, pk):
+    order = get_object_or_404(PurchaseOrder, pk=pk)
+    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+        raise PermissionDenied
+    if order.status not in ['envoyee', 'confirmee']:
+        messages.error(request, 'Cette commande ne peut pas recevoir une reponse fournisseur.')
+        return redirect(f'/orders/{pk}/')
+    form = SupplierOrderResponseForm(request.POST or None, instance=order)
+    if request.method == 'POST' and form.is_valid():
+        order = form.save(commit=False)
+        order.supplier_response_status = 'devis_envoye'
+        order.supplier_responded_at = timezone.now()
+        order.save(update_fields=[
+            'supplier_quote_amount', 'supplier_delivery_date',
+            'supplier_document_reference', 'supplier_note',
+            'supplier_response_status', 'supplier_responded_at', 'updated_at',
+        ])
+        messages.success(request, 'Devis fournisseur envoye.')
+    return redirect(f'/orders/{pk}/')
+
+
+@login_required(login_url='login')
+def order_supplier_confirm(request, pk):
+    order = get_object_or_404(PurchaseOrder, pk=pk)
+    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+        raise PermissionDenied
+    if request.method == 'POST' and order.status in ['envoyee', 'confirmee']:
+        order.status = 'confirmee'
+        order.supplier_response_status = 'confirmee'
+        order.supplier_responded_at = timezone.now()
+        order.save(update_fields=['status', 'supplier_response_status', 'supplier_responded_at', 'updated_at'])
+        messages.success(request, f"Commande {order.reference} confirmee.")
+    return redirect(f'/orders/{pk}/')
+
+
+@login_required(login_url='login')
+def order_supplier_reject(request, pk):
+    order = get_object_or_404(PurchaseOrder, pk=pk)
+    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+        raise PermissionDenied
+    if request.method == 'POST' and order.status in ['envoyee', 'confirmee']:
+        order.status = 'annulee'
+        order.supplier_response_status = 'refusee'
+        order.supplier_note = request.POST.get('supplier_note', order.supplier_note)
+        order.supplier_responded_at = timezone.now()
+        order.save(update_fields=['status', 'supplier_response_status', 'supplier_note', 'supplier_responded_at', 'updated_at'])
+        messages.success(request, f"Commande {order.reference} refusee.")
+    return redirect(f'/orders/{pk}/')
+
+
+@login_required(login_url='login')
+def order_supplier_status(request, pk):
+    order = get_object_or_404(PurchaseOrder, pk=pk)
+    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+        raise PermissionDenied
+    form = SupplierDeliveryStatusForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid() and order.status in ['confirmee', 'expediee']:
+        supplier_status = form.cleaned_data['status']
+        order.supplier_response_status = supplier_status
+        if supplier_status == 'expediee':
+            order.status = 'expediee'
+        note = form.cleaned_data.get('note')
+        if note:
+            order.supplier_note = note
+        order.supplier_responded_at = timezone.now()
+        order.save(update_fields=['status', 'supplier_response_status', 'supplier_note', 'supplier_responded_at', 'updated_at'])
+        messages.success(request, 'Statut livraison mis a jour.')
+    return redirect(f'/orders/{pk}/')
+
+
+@login_required(login_url='login')
 def order_receive(request, pk):
     require_role(request.user, 'magasinier')
     order = get_object_or_404(PurchaseOrder.objects.prefetch_related('order_lines__product'), pk=pk)
-    if order.status not in ['envoyee', 'confirmee', 'recue_partielle']:
+    if order.status not in ['envoyee', 'confirmee', 'expediee', 'recue_partielle']:
         messages.error(request, 'Cette commande ne peut pas etre receptionnee.')
         return redirect(f'/orders/{pk}/')
     form = ReceptionForm(order, request.POST or None)

@@ -180,6 +180,15 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             return PurchaseOrderListSerializer
         return PurchaseOrderSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if getattr(user, 'role', None) == 'fournisseur':
+            if not user.supplier_id:
+                return queryset.none()
+            return queryset.filter(supplier=user.supplier).exclude(status='brouillon')
+        return queryset
+
     def perform_create(self, serializer):
         serializer.save(ordered_by=self.request.user)
         create_audit_log(
@@ -200,6 +209,39 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         order.sent_at = timezone.now()
         order.save()
         return Response({'message': 'Commande envoyée.', 'status': order.status})
+
+
+    @action(detail=True, methods=['post'])
+    def supplier_reply(self, request, pk=None):
+        """Reponse fournisseur: devis, confirmation, refus ou suivi livraison."""
+        order = self.get_object()
+        if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+            return Response({'error': 'Non autorise.'}, status=403)
+
+        action_name = request.data.get('action', 'quote')
+        if action_name == 'reject':
+            order.status = 'annulee'
+            order.supplier_response_status = 'refusee'
+        elif action_name == 'confirm':
+            order.status = 'confirmee'
+            order.supplier_response_status = 'confirmee'
+        elif action_name in ['preparation', 'expediee', 'livree']:
+            order.supplier_response_status = action_name
+            if action_name == 'expediee':
+                order.status = 'expediee'
+        else:
+            order.supplier_response_status = 'devis_envoye'
+
+        for field in ['supplier_quote_amount', 'supplier_delivery_date', 'supplier_document_reference', 'supplier_note']:
+            if field in request.data:
+                setattr(order, field, request.data.get(field))
+        order.supplier_responded_at = timezone.now()
+        order.save(update_fields=[
+            'status', 'supplier_response_status', 'supplier_quote_amount',
+            'supplier_delivery_date', 'supplier_document_reference',
+            'supplier_note', 'supplier_responded_at', 'updated_at',
+        ])
+        return Response(PurchaseOrderSerializer(order).data)
 
 
 class ReceptionViewSet(viewsets.ModelViewSet):

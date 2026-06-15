@@ -33,6 +33,9 @@
           <strong>{{ request.user.full_name }}</strong>
           <p>{{ request.user.email }}</p>
           <p>{{ request.user.get_role_display }}</p>
+          {% if unread_notifications_count %}
+            <p><strong>{{ unread_notifications_count }}</strong> notification(s) non lue(s)</p>
+          {% endif %}
           <form method="post" action="/logout/" class="logout-form">
             {% csrf_token %}
             <button type="submit">Se deconnecter</button>

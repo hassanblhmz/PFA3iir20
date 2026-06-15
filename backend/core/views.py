@@ -6,7 +6,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -20,6 +20,7 @@ from core.forms import (
 )
 from products.models import Product
 from purchases.models import (
+    AuditLog, Notification,
     PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine,
     Reception, ReceptionLine, SupplierRequestConversation, SupplierRequestMessage,
     ValidationLog,
@@ -187,7 +188,37 @@ def require_role(user, *roles):
         raise PermissionDenied
 
 
+def create_audit_log(user, action, entity, entity_id=None, description=''):
+    AuditLog.objects.create(
+        user=user if getattr(user, 'is_authenticated', False) else None,
+        action=action,
+        entity=entity,
+        entity_id=entity_id,
+        description=description,
+    )
+
+
+def notify_user(user, title, message='', link=''):
+    if user and user.is_active:
+        Notification.objects.create(user=user, title=title, message=message, link=link)
+
+
+def notify_roles(roles, title, message='', link='', exclude_user=None):
+    users = User.objects.filter(role__in=roles, is_active=True)
+    if exclude_user:
+        users = users.exclude(pk=exclude_user.pk)
+    Notification.objects.bulk_create([
+        Notification(user=user, title=title, message=message, link=link)
+        for user in users
+    ])
+
+
 def app_context(request, **extra):
+    notifications = Notification.objects.none()
+    unread_notifications_count = 0
+    if request.user.is_authenticated:
+        notifications = request.user.notifications.order_by('-created_at')[:5]
+        unread_notifications_count = request.user.notifications.filter(is_read=False).count()
     context = {
         'workspace': workspace_for(request.user),
         'can_manage_products': has_role(request.user, 'acheteur'),
@@ -198,6 +229,8 @@ def app_context(request, **extra):
         'can_supplier_manage_orders': request.user.is_authenticated and request.user.role == 'fournisseur',
         'can_manage_stock': has_role(request.user, 'magasinier'),
         'can_use_conversations': has_role(request.user, 'demandeur', 'acheteur', 'fournisseur'),
+        'recent_notifications': notifications,
+        'unread_notifications_count': unread_notifications_count,
     }
     context.update(extra)
     return context
@@ -266,7 +299,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 recent_orders = recent_orders.none()
         context['workspace'] = workspace
         context['metrics'] = {
-            'open_requests': PurchaseRequest.objects.filter(status__in=['soumis', 'en_validation', 'valide']).count(),
+            'total_requests': PurchaseRequest.objects.count(),
+            'open_requests': PurchaseRequest.objects.filter(status__in=['soumis', 'en_validation']).count(),
+            'approved_requests': PurchaseRequest.objects.filter(status='valide').count(),
+            'rejected_requests': PurchaseRequest.objects.filter(status='rejete').count(),
             'sent_orders': PurchaseOrder.objects.filter(status__in=['envoyee', 'confirmee', 'expediee', 'recue_partielle']).count(),
             'critical_products': Product.objects.filter(
                 Q(current_stock__lte=F('min_stock')) | Q(is_active=False)
@@ -274,6 +310,11 @@ class HomeView(LoginRequiredMixin, TemplateView):
             'conversations': SupplierRequestConversation.objects.exclude(status='cloturee').count(),
             'suppliers': Supplier.objects.filter(status='actif').count(),
             'users': User.objects.filter(is_active=True).count(),
+        }
+        order_counts = PurchaseOrder.objects.values('status').annotate(total=Count('id')).order_by('status')
+        context['order_status_counts'] = {
+            dict(PurchaseOrder.STATUS_CHOICES).get(row['status'], row['status']): row['total']
+            for row in order_counts
         }
         context['critical_products'] = Product.objects.filter(
             Q(current_stock__lte=F('min_stock')) | Q(is_active=False)
@@ -283,6 +324,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         context['recent_conversations'] = SupplierRequestConversation.objects.select_related(
             'supplier', 'demandeur', 'request_line__product'
         ).order_by('-updated_at')[:4]
+        context['recent_audit_logs'] = AuditLog.objects.select_related('user').order_by('-created_at')[:6]
         return context
 
 
@@ -296,15 +338,18 @@ class AccountsView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context.update(app_context(self.request))
         context['demo_accounts'] = DEMO_ACCOUNTS
         context['users'] = User.objects.order_by('role', 'email')
         context['active_users_count'] = User.objects.filter(is_active=True).count()
         context['inactive_users_count'] = User.objects.filter(is_active=False).count()
+        context['recent_audit_logs'] = AuditLog.objects.select_related('user').order_by('-created_at')[:10]
         return context
 
 
 @login_required(login_url='login')
 def product_list(request):
+    require_role(request.user, 'demandeur', 'validateur', 'acheteur', 'magasinier', 'direction')
     products = Product.objects.select_related('category').prefetch_related('suppliers').order_by('name')
     status_filter = request.GET.get('status')
     if status_filter == 'critique':
@@ -328,6 +373,7 @@ def product_create(request):
     form = ProductForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         product = form.save()
+        create_audit_log(request.user, 'product_creation', 'Product', product.id, f"Article {product.code} cree.")
         messages.success(request, f"Article {product.code} cree.")
         return redirect('/products/')
     return render(request, 'products/form.html', app_context(
@@ -342,6 +388,7 @@ def product_edit(request, pk):
     form = ProductForm(request.POST or None, instance=product)
     if request.method == 'POST' and form.is_valid():
         form.save()
+        create_audit_log(request.user, 'product_update', 'Product', product.id, f"Article {product.code} mis a jour.")
         messages.success(request, f"Article {product.code} mis a jour.")
         return redirect('/products/')
     return render(request, 'products/form.html', app_context(
@@ -351,6 +398,7 @@ def product_edit(request, pk):
 
 @login_required(login_url='login')
 def supplier_list(request):
+    require_role(request.user, 'acheteur')
     suppliers = Supplier.objects.prefetch_related('products', 'purchase_orders').order_by('name')
     return render(request, 'suppliers/list.html', app_context(request, suppliers=suppliers))
 
@@ -361,6 +409,7 @@ def supplier_create(request):
     form = SupplierForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         supplier = form.save()
+        create_audit_log(request.user, 'supplier_creation', 'Supplier', supplier.id, f"Fournisseur {supplier.code} cree.")
         messages.success(request, f"Fournisseur {supplier.code} cree.")
         return redirect('/suppliers/')
     return render(request, 'suppliers/form.html', app_context(
@@ -375,6 +424,7 @@ def supplier_edit(request, pk):
     form = SupplierForm(request.POST or None, instance=supplier)
     if request.method == 'POST' and form.is_valid():
         form.save()
+        create_audit_log(request.user, 'supplier_update', 'Supplier', supplier.id, f"Fournisseur {supplier.code} mis a jour.")
         messages.success(request, f"Fournisseur {supplier.code} mis a jour.")
         return redirect('/suppliers/')
     return render(request, 'suppliers/form.html', app_context(
@@ -384,6 +434,7 @@ def supplier_edit(request, pk):
 
 @login_required(login_url='login')
 def request_list(request):
+    require_role(request.user, 'demandeur', 'validateur', 'acheteur', 'direction')
     requests = PurchaseRequest.objects.select_related('requested_by').prefetch_related('lines__product')
     if request.user.role == 'demandeur':
         requests = requests.filter(requested_by=request.user)
@@ -408,6 +459,13 @@ def request_create(request):
             if not line.unit_price:
                 line.unit_price = line.product.unit_price
             line.save()
+            create_audit_log(
+                request.user,
+                'request_creation',
+                'PurchaseRequest',
+                purchase_request.id,
+                f"Demande {purchase_request.reference} creee.",
+            )
             messages.success(request, f"Demande {purchase_request.reference} creee.")
         return redirect(f'/requests/{purchase_request.pk}/')
     return render(request, 'requests/form.html', app_context(
@@ -427,6 +485,8 @@ def request_detail(request, pk):
         pk=pk,
     )
     if request.user.role == 'demandeur' and purchase_request.requested_by_id != request.user.id:
+        raise PermissionDenied
+    if request.user.role not in ['admin', 'demandeur', 'validateur', 'acheteur', 'direction']:
         raise PermissionDenied
     line_form = PurchaseRequestLineForm()
     decision_form = RequestDecisionForm()
@@ -471,6 +531,20 @@ def request_submit(request, pk):
         request=purchase_request, action='soumission', performed_by=request.user,
         old_status=old_status, new_status='soumis'
     )
+    create_audit_log(
+        request.user,
+        'request_submission',
+        'PurchaseRequest',
+        purchase_request.id,
+        f"Demande {purchase_request.reference} soumise pour validation.",
+    )
+    notify_roles(
+        ['validateur', 'admin'],
+        'Nouvelle demande a valider',
+        f"{purchase_request.reference} - {purchase_request.title}",
+        f"/requests/{purchase_request.pk}/",
+        exclude_user=request.user,
+    )
     messages.success(request, f"Demande {purchase_request.reference} soumise.")
     return redirect(f'/requests/{pk}/')
 
@@ -487,6 +561,25 @@ def request_validate(request, pk):
         ValidationLog.objects.create(
             request=purchase_request, action='validation', performed_by=request.user,
             comment=form.cleaned_data['comment'], old_status=old_status, new_status='valide'
+        )
+        create_audit_log(
+            request.user,
+            'request_validation',
+            'PurchaseRequest',
+            purchase_request.id,
+            f"Demande {purchase_request.reference} validee.",
+        )
+        notify_user(
+            purchase_request.requested_by,
+            'Demande validee',
+            f"{purchase_request.reference} est prete pour la commande.",
+            f"/requests/{purchase_request.pk}/",
+        )
+        notify_roles(
+            ['acheteur'],
+            'Demande validee a commander',
+            f"{purchase_request.reference} - {purchase_request.title}",
+            f"/requests/{purchase_request.pk}/",
         )
         messages.success(request, f"Demande {purchase_request.reference} validee.")
     return redirect(f'/requests/{pk}/')
@@ -508,6 +601,19 @@ def request_reject(request, pk):
         ValidationLog.objects.create(
             request=purchase_request, action='rejet', performed_by=request.user,
             comment=comment, old_status=old_status, new_status='rejete'
+        )
+        create_audit_log(
+            request.user,
+            'request_rejection',
+            'PurchaseRequest',
+            purchase_request.id,
+            f"Demande {purchase_request.reference} rejetee.",
+        )
+        notify_user(
+            purchase_request.requested_by,
+            'Demande rejetee',
+            f"{purchase_request.reference}: {comment}",
+            f"/requests/{purchase_request.pk}/",
         )
         messages.success(request, f"Demande {purchase_request.reference} rejetee.")
     return redirect(f'/requests/{pk}/')
@@ -538,6 +644,19 @@ def request_create_order(request, pk):
                 )
             purchase_request.status = 'commande'
             purchase_request.save(update_fields=['status', 'updated_at'])
+            create_audit_log(
+                request.user,
+                'order_creation',
+                'PurchaseOrder',
+                order.id,
+                f"Commande {order.reference} creee depuis la demande {purchase_request.reference}.",
+            )
+            notify_roles(
+                ['magasinier'],
+                'Nouvelle commande a suivre',
+                f"{order.reference} - {order.supplier.name}",
+                f"/orders/{order.pk}/",
+            )
         messages.success(request, f"Commande {order.reference} creee.")
         return redirect(f'/orders/{order.pk}/')
     messages.error(request, 'Impossible de creer une commande depuis cette demande.')
@@ -554,6 +673,7 @@ def require_supplier_order_access(user, order):
 
 @login_required(login_url='login')
 def order_list(request):
+    require_role(request.user, 'acheteur', 'magasinier', 'direction', 'fournisseur')
     orders = PurchaseOrder.objects.select_related('supplier', 'ordered_by', 'purchase_request').prefetch_related('order_lines__product')
     if request.user.role == 'fournisseur':
         if not request.user.supplier_id:
@@ -592,6 +712,14 @@ def order_send(request, pk):
         order.status = 'envoyee'
         order.sent_at = timezone.now()
         order.save(update_fields=['status', 'sent_at', 'updated_at'])
+        create_audit_log(request.user, 'order_sent', 'PurchaseOrder', order.id, f"Commande {order.reference} envoyee.")
+        for supplier_user in order.supplier.users.filter(is_active=True):
+            notify_user(
+                supplier_user,
+                'Commande recue',
+                f"{order.reference} attend votre reponse.",
+                f"/orders/{order.pk}/",
+            )
         messages.success(request, f"Commande {order.reference} envoyee.")
     return redirect(f'/orders/{pk}/')
 
@@ -614,6 +742,13 @@ def order_supplier_quote(request, pk):
             'supplier_document_reference', 'supplier_note',
             'supplier_response_status', 'supplier_responded_at', 'updated_at',
         ])
+        create_audit_log(request.user, 'supplier_quote', 'PurchaseOrder', order.id, f"Devis fourni pour {order.reference}.")
+        notify_roles(
+            ['acheteur'],
+            'Devis fournisseur recu',
+            f"{order.reference} - {order.supplier.name}",
+            f"/orders/{order.pk}/",
+        )
         messages.success(request, 'Devis fournisseur envoye.')
     return redirect(f'/orders/{pk}/')
 
@@ -628,6 +763,13 @@ def order_supplier_confirm(request, pk):
         order.supplier_response_status = 'confirmee'
         order.supplier_responded_at = timezone.now()
         order.save(update_fields=['status', 'supplier_response_status', 'supplier_responded_at', 'updated_at'])
+        create_audit_log(request.user, 'supplier_confirmation', 'PurchaseOrder', order.id, f"Commande {order.reference} confirmee par fournisseur.")
+        notify_roles(
+            ['acheteur', 'magasinier'],
+            'Commande confirmee',
+            f"{order.reference} - {order.supplier.name}",
+            f"/orders/{order.pk}/",
+        )
         messages.success(request, f"Commande {order.reference} confirmee.")
     return redirect(f'/orders/{pk}/')
 
@@ -643,6 +785,13 @@ def order_supplier_reject(request, pk):
         order.supplier_note = request.POST.get('supplier_note', order.supplier_note)
         order.supplier_responded_at = timezone.now()
         order.save(update_fields=['status', 'supplier_response_status', 'supplier_note', 'supplier_responded_at', 'updated_at'])
+        create_audit_log(request.user, 'supplier_rejection', 'PurchaseOrder', order.id, f"Commande {order.reference} refusee par fournisseur.")
+        notify_roles(
+            ['acheteur'],
+            'Commande refusee par fournisseur',
+            f"{order.reference} - {order.supplier.name}",
+            f"/orders/{order.pk}/",
+        )
         messages.success(request, f"Commande {order.reference} refusee.")
     return redirect(f'/orders/{pk}/')
 
@@ -663,6 +812,13 @@ def order_supplier_status(request, pk):
             order.supplier_note = note
         order.supplier_responded_at = timezone.now()
         order.save(update_fields=['status', 'supplier_response_status', 'supplier_note', 'supplier_responded_at', 'updated_at'])
+        create_audit_log(request.user, 'supplier_delivery_update', 'PurchaseOrder', order.id, f"Statut fournisseur {supplier_status} pour {order.reference}.")
+        notify_roles(
+            ['acheteur', 'magasinier'],
+            'Statut livraison mis a jour',
+            f"{order.reference}: {order.get_supplier_response_status_display()}",
+            f"/orders/{order.pk}/",
+        )
         messages.success(request, 'Statut livraison mis a jour.')
     return redirect(f'/orders/{pk}/')
 
@@ -713,6 +869,20 @@ def order_receive(request, pk):
                 reason=f"Reception {reception.reference or reception.id}",
                 performed_by=request.user,
             )
+            create_audit_log(
+                request.user,
+                'reception_validation',
+                'Reception',
+                reception.id,
+                f"Reception {reception.reference or reception.id} pour {order.reference}.",
+            )
+            create_audit_log(
+                request.user,
+                'stock_update',
+                'Product',
+                product.id,
+                f"Stock {product.code}: {stock_before} -> {product.current_stock}.",
+            )
 
             has_remaining_lines = order.order_lines.filter(
                 quantity_received__lt=F('quantity_ordered')
@@ -722,12 +892,26 @@ def order_receive(request, pk):
             else:
                 order.status = 'recue_partielle'
             order.save(update_fields=['status', 'updated_at'])
+            notify_roles(
+                ['acheteur'],
+                'Reception enregistree',
+                f"{order.reference} - {product.name} ({quantity})",
+                f"/orders/{order.pk}/",
+            )
+            if order.purchase_request_id:
+                notify_user(
+                    order.purchase_request.requested_by,
+                    'Reception achat',
+                    f"{product.name} receptionne pour {order.purchase_request.reference}.",
+                    f"/orders/{order.pk}/",
+                )
         messages.success(request, f"Reception enregistree pour {product.name}.")
     return redirect(f'/orders/{pk}/')
 
 
 @login_required(login_url='login')
 def stock_dashboard(request):
+    require_role(request.user, 'magasinier', 'direction')
     movements = StockMovement.objects.select_related('product', 'performed_by').order_by('-created_at')[:30]
     critical_products = Product.objects.select_related('category').filter(
         Q(current_stock__lte=F('min_stock')) | Q(is_active=False)
@@ -768,6 +952,21 @@ def stock_adjust(request):
                 reason=form.cleaned_data['reason'],
                 performed_by=request.user,
             )
+            create_audit_log(
+                request.user,
+                'stock_update',
+                'Product',
+                product.id,
+                f"Mouvement {move_type} sur {product.code}: {stock_before} -> {product.current_stock}.",
+            )
+            if product.current_stock <= product.min_stock:
+                notify_roles(
+                    ['acheteur', 'magasinier'],
+                    'Alerte stock critique',
+                    f"{product.code} - {product.name}: stock {product.current_stock}, seuil {product.min_stock}.",
+                    f"/products/?status={product.stock_status}",
+                    exclude_user=request.user,
+                )
         messages.success(request, f"Stock de {product.name} mis a jour.")
     return redirect('/stock/')
 
@@ -830,6 +1029,18 @@ def conversation_reply(request, pk):
             message.sender_type = 'fournisseur'
             message.sender_supplier = conversation.supplier
         message.save()
+        create_audit_log(
+            request.user,
+            'supplier_conversation_message',
+            'SupplierRequestConversation',
+            conversation.id,
+            f"Message ajoute dans la conversation {conversation.subject}.",
+        )
+        if message.sender_type == 'demandeur':
+            for supplier_user in conversation.supplier.users.filter(is_active=True):
+                notify_user(supplier_user, 'Nouveau message demandeur', conversation.subject, f"/conversations/{conversation.pk}/")
+        else:
+            notify_user(conversation.demandeur, 'Nouveau message fournisseur', conversation.subject, f"/conversations/{conversation.pk}/")
         messages.success(request, 'Message ajoute.')
     return redirect(f'/conversations/{pk}/')
 
@@ -870,6 +1081,20 @@ def request_open_conversation(request, pk):
                 sender_user=purchase_request.requested_by,
                 body=form.cleaned_data['body'],
             )
+            create_audit_log(
+                request.user,
+                'supplier_conversation_opened',
+                'SupplierRequestConversation',
+                conversation.id,
+                f"Conversation ouverte avec {supplier.name} pour {line.product.name}.",
+            )
+            for supplier_user in supplier.users.filter(is_active=True):
+                notify_user(
+                    supplier_user,
+                    'Conversation fournisseur ouverte',
+                    conversation.subject,
+                    f"/conversations/{conversation.pk}/",
+                )
             messages.success(request, 'Conversation fournisseur ouverte.')
         else:
             messages.info(request, 'Une conversation ouverte existe deja pour ce fournisseur et cette ligne.')

@@ -96,7 +96,7 @@
         </form>
       {% endif %}
 
-      {% if purchase_request.status != "brouillon" %}
+      {% if purchase_request.status != "brouillon" and can_use_conversations %}
         <form method="post" action="/requests/{{ purchase_request.id }}/open-conversation/" class="entity-form compact-form">
           {% csrf_token %}
           <h3>Conversation fournisseur</h3>

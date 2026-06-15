@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.db.models import F, Q
 
@@ -37,13 +39,7 @@ class ProductForm(StyledFormMixin, forms.ModelForm):
         self.fields['description'].label = 'Description'
         self.fields['category'].label = 'Categorie'
         self.fields['unit'].label = 'Unite'
-        self.fields['unit'].choices = [
-            ('lot', 'Lot'),
-            ('carton', 'Carton'),
-            ('kg', 'Kilogramme'),
-            ('litre', 'Litre'),
-            ('palette', 'Palette'),
-        ]
+        self.fields['unit'].choices = Product.UNIT_CHOICES
         self.fields['unit_price'].label = 'Prix unitaire'
         self.fields['current_stock'].label = 'Stock actuel'
         self.fields['min_stock'].label = 'Seuil critique'
@@ -139,7 +135,7 @@ class CreateOrderForm(StyledFormMixin, forms.Form):
 class ReceptionForm(StyledFormMixin, forms.Form):
     reference = forms.CharField(label='BL fournisseur', required=False)
     order_line = forms.ModelChoiceField(label='Ligne commande', queryset=PurchaseOrderLine.objects.none())
-    quantity_received = forms.DecimalField(label='Quantite recue', min_value=0)
+    quantity_received = forms.DecimalField(label='Quantite recue', min_value=Decimal('0.01'))
     notes = forms.CharField(label='Notes', required=False, widget=forms.Textarea(attrs={'rows': 2}))
 
     def __init__(self, order, *args, **kwargs):
@@ -190,10 +186,8 @@ class StockAdjustmentForm(StyledFormMixin, forms.Form):
         ('entree', 'Entree'),
         ('sortie', 'Sortie'),
         ('ajustement', 'Ajustement'),
-        ('transfert', 'Transfert'),
-        ('retour', 'Retour'),
     ])
-    quantity = forms.DecimalField(label='Quantite', min_value=0)
+    quantity = forms.DecimalField(label='Quantite', min_value=Decimal('0.01'))
     reference = forms.CharField(label='Reference', required=False)
     reason = forms.CharField(label='Motif', widget=forms.Textarea(attrs={'rows': 2}))
 

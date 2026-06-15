@@ -6,6 +6,7 @@ from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from django.utils import timezone
 
@@ -53,8 +54,25 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
             return PurchaseRequestListSerializer
         return PurchaseRequestSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if getattr(self.request.user, 'role', None) == 'demandeur':
+            return queryset.filter(requested_by=self.request.user)
+        if getattr(self.request.user, 'role', None) == 'fournisseur':
+            return queryset.none()
+        return queryset
+
     def perform_create(self, serializer):
-        serializer.save(requested_by=self.request.user, department=self.request.user.department)
+        if self.request.user.role not in ['admin', 'demandeur']:
+            raise PermissionDenied('Seul un demandeur peut creer une demande.')
+        purchase_request = serializer.save(requested_by=self.request.user, department=self.request.user.department)
+        create_audit_log(
+            self.request.user,
+            'request_creation',
+            'PurchaseRequest',
+            purchase_request.id,
+            f"Demande {purchase_request.reference} creee.",
+        )
 
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
@@ -71,6 +89,13 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
         ValidationLog.objects.create(
             request=pr, action='soumission', performed_by=request.user,
             old_status=old_status, new_status='soumis'
+        )
+        create_audit_log(
+            request.user,
+            'request_submission',
+            'PurchaseRequest',
+            pr.id,
+            f"Demande {pr.reference} soumise pour validation.",
         )
         return Response({'message': 'Demande soumise avec succès.', 'status': pr.status})
 
@@ -202,12 +227,21 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
         """Marquer la commande comme envoyée"""
+        if request.user.role not in ['admin', 'acheteur']:
+            return Response({'error': 'Non autorise.'}, status=403)
         order = self.get_object()
         if order.status != 'brouillon':
             return Response({'error': 'Seul un brouillon peut être envoyé.'}, status=400)
         order.status = 'envoyee'
         order.sent_at = timezone.now()
         order.save()
+        create_audit_log(
+            request.user,
+            'order_sent',
+            'PurchaseOrder',
+            order.id,
+            f"Commande {order.reference} envoyee.",
+        )
         return Response({'message': 'Commande envoyée.', 'status': order.status})
 
 
@@ -253,6 +287,8 @@ class ReceptionViewSet(viewsets.ModelViewSet):
     filterset_fields = ['order']
 
     def perform_create(self, serializer):
+        if self.request.user.role not in ['admin', 'magasinier']:
+            raise PermissionDenied('Seul un magasinier peut receptionner une commande.')
         serializer.save(received_by=self.request.user)
 
 

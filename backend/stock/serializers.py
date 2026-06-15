@@ -21,8 +21,14 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 class StockAdjustmentSerializer(serializers.Serializer):
     """Serializer pour un ajustement manuel du stock"""
+    ADJUSTMENT_TYPES = [
+        ('entree', 'Entree'),
+        ('sortie', 'Sortie'),
+        ('ajustement', 'Ajustement'),
+    ]
+
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
-    type = serializers.ChoiceField(choices=StockMovement.TYPE_CHOICES)
+    type = serializers.ChoiceField(choices=ADJUSTMENT_TYPES)
     quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
     reason = serializers.CharField(max_length=200)
     reference = serializers.CharField(max_length=50, required=False, allow_blank=True)

@@ -8,11 +8,13 @@ from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-pfa-gestion-achats-2024-change-in-production'
+# Local demo default; set DJANGO_SECRET_KEY in a .env or shell for a shared repo.
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-pfa-gestion-achats-2024-change-in-production')
 
-DEBUG = True
+# DEBUG=True is kept for the academic/local demo. Use DJANGO_DEBUG=False outside local use.
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

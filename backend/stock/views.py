@@ -8,7 +8,18 @@ from .models import StockMovement
 from .serializers import StockMovementSerializer, StockAdjustmentSerializer
 from products.models import Product
 from products.serializers import ProductListSerializer
+from purchases.models import AuditLog
 from users.permissions import IsMagasinier
+
+
+def create_audit_log(user, action, entity, entity_id=None, description=''):
+    AuditLog.objects.create(
+        user=user if getattr(user, 'is_authenticated', False) else None,
+        action=action,
+        entity=entity,
+        entity_id=entity_id,
+        description=description,
+    )
 
 
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
@@ -55,6 +66,13 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
                 reason=data.get('reason', ''),
                 reference=data.get('reference', ''),
                 performed_by=request.user
+            )
+            create_audit_log(
+                request.user,
+                'stock_update',
+                'Product',
+                product.id,
+                f"Mouvement {move_type} sur {product.code}: {stock_before} -> {product.current_stock}.",
             )
 
         return Response(StockMovementSerializer(movement).data, status=201)

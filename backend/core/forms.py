@@ -1,8 +1,6 @@
 from decimal import Decimal
 
 from django import forms
-from django.db.models import F, Q
-
 from products.models import Category, Product
 from purchases.models import (
     PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine,
@@ -203,8 +201,9 @@ class ConversationOpenForm(StyledFormMixin, forms.Form):
 
     def __init__(self, request_obj, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['request_line'].queryset = request_obj.lines.select_related('product').filter(
-            Q(product__current_stock__lte=F('product__min_stock')) | Q(product__is_active=False)
+        self.fields['request_line'].queryset = request_obj.lines.select_related('product').order_by('product__name')
+        self.fields['request_line'].label_from_instance = (
+            lambda line: f"{line.product.code} - {line.product.name} ({line.quantity})"
         )
         self._style_fields()
 

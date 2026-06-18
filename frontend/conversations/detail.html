@@ -21,7 +21,15 @@
       <div class="conversation">
         {% for message in conversation.messages.all %}
           <article class="message {% if message.sender_type == 'fournisseur' %}supplier{% else %}demandeur{% endif %}">
-            <span>{{ message.get_sender_type_display }} - {{ message.created_at|date:"d/m/Y H:i" }}</span>
+            <span>
+              {{ message.get_sender_type_display }}
+              {% if message.sender_type == "fournisseur" %}
+                - {{ message.sender_supplier.name }}
+              {% else %}
+                - {{ message.sender_user.full_name }}
+              {% endif %}
+              - {{ message.created_at|date:"d/m/Y H:i" }}
+            </span>
             <p>{{ message.body }}</p>
           </article>
         {% empty %}
@@ -37,13 +45,22 @@
           <h2>Ajouter un message</h2>
         </div>
       </div>
-      <form method="post" action="/conversations/{{ conversation.id }}/reply/" class="entity-form compact-form">
-        {% csrf_token %}
-        {% for field in form %}
-          <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
-        {% endfor %}
-        <button type="submit">Envoyer message</button>
-      </form>
+      {% if can_reply_conversation %}
+        <form method="post" action="/conversations/{{ conversation.id }}/reply/" class="entity-form compact-form">
+          {% csrf_token %}
+          {% for field in form %}
+            <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+          {% endfor %}
+          <button type="submit">Envoyer message</button>
+        </form>
+      {% else %}
+        <div class="timeline">
+          <article>
+            <strong>Lecture seule</strong>
+            <span>Cette conversation reste entre le demandeur et le fournisseur.</span>
+          </article>
+        </div>
+      {% endif %}
     </section>
   </div>
 {% endblock %}

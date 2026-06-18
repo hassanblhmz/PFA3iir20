@@ -311,8 +311,25 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'trigger', 'supplier', 'demandeur', 'purchase_request']
     ordering_fields = ['opened_at', 'updated_at']
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if getattr(user, 'role', None) == 'demandeur':
+            return queryset.filter(demandeur=user)
+        if getattr(user, 'role', None) == 'fournisseur':
+            if not user.supplier_id:
+                return queryset.none()
+            return queryset.filter(supplier=user.supplier)
+        if getattr(user, 'role', None) in ['admin', 'acheteur']:
+            return queryset
+        return queryset.none()
+
     def perform_create(self, serializer):
+        if self.request.user.role != 'demandeur':
+            raise PermissionDenied('Seul le demandeur peut ouvrir une conversation fournisseur.')
         purchase_request = serializer.validated_data['purchase_request']
+        if purchase_request.requested_by_id != self.request.user.id:
+            raise PermissionDenied('Vous ne pouvez ouvrir une conversation que pour vos propres demandes.')
         serializer.save(demandeur=purchase_request.requested_by)
         create_audit_log(
             self.request.user,
@@ -328,7 +345,16 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
         conversation = self.get_object()
         if conversation.status == 'cloturee':
             return Response({'error': 'Cette conversation est deja cloturee.'}, status=400)
-        sender_type = request.data.get('sender_type', 'demandeur')
+        if request.user.role == 'demandeur':
+            if conversation.demandeur_id != request.user.id:
+                raise PermissionDenied('Seul le demandeur de la conversation peut repondre.')
+            sender_type = 'demandeur'
+        elif request.user.role == 'fournisseur':
+            if not request.user.supplier_id or conversation.supplier_id != request.user.supplier_id:
+                raise PermissionDenied('Seul le fournisseur de la conversation peut repondre.')
+            sender_type = 'fournisseur'
+        else:
+            raise PermissionDenied('Cette conversation accepte uniquement les reponses du demandeur et du fournisseur.')
         data = {
             'conversation': conversation.id,
             'sender_type': sender_type,
@@ -336,7 +362,7 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
         }
 
         if sender_type == 'fournisseur':
-            data['sender_supplier'] = request.data.get('sender_supplier') or conversation.supplier_id
+            data['sender_supplier'] = request.user.supplier_id
         else:
             data['sender_user'] = request.user.id
 

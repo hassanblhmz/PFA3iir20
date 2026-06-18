@@ -4,6 +4,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -213,6 +214,10 @@ def notify_roles(roles, title, message='', link='', exclude_user=None):
     ])
 
 
+def safe_notification_redirect(link):
+    return link if link and link.startswith('/') and not link.startswith('//') else '/'
+
+
 def app_context(request, **extra):
     notifications = Notification.objects.none()
     unread_notifications_count = 0
@@ -228,12 +233,29 @@ def app_context(request, **extra):
         'can_manage_orders': has_role(request.user, 'acheteur'),
         'can_supplier_manage_orders': request.user.is_authenticated and request.user.role == 'fournisseur',
         'can_manage_stock': has_role(request.user, 'magasinier'),
-        'can_use_conversations': has_role(request.user, 'demandeur', 'acheteur', 'fournisseur'),
+        'can_use_conversations': request.user.is_authenticated and request.user.role == 'demandeur',
         'recent_notifications': notifications,
         'unread_notifications_count': unread_notifications_count,
     }
     context.update(extra)
     return context
+
+
+@login_required(login_url='login')
+def notification_open(request, pk):
+    notification = get_object_or_404(Notification, pk=pk, user=request.user)
+    if not notification.is_read:
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+    return redirect(safe_notification_redirect(notification.link))
+
+
+@login_required(login_url='login')
+@require_POST
+def notifications_mark_all_read(request):
+    request.user.notifications.filter(is_read=False).update(is_read=True)
+    messages.success(request, 'Notifications marquees comme lues.')
+    return redirect(safe_notification_redirect(request.POST.get('next')))
 
 
 class EmailAuthenticationForm(AuthenticationForm):
@@ -971,6 +993,20 @@ def stock_adjust(request):
     return redirect('/stock/')
 
 
+def require_conversation_access(user, conversation, write=False):
+    if user.role == 'demandeur':
+        if conversation.demandeur_id != user.id:
+            raise PermissionDenied
+        return
+    if user.role == 'fournisseur':
+        if not user.supplier_id or conversation.supplier_id != user.supplier_id:
+            raise PermissionDenied
+        return
+    if not write and has_role(user, 'acheteur'):
+        return
+    raise PermissionDenied
+
+
 @login_required(login_url='login')
 def conversation_list(request):
     require_role(request.user, 'demandeur', 'acheteur', 'fournisseur')
@@ -995,12 +1031,15 @@ def conversation_detail(request, pk):
         ).prefetch_related('messages__sender_user', 'messages__sender_supplier'),
         pk=pk,
     )
-    if request.user.role == 'demandeur' and conversation.demandeur_id != request.user.id:
-        raise PermissionDenied
-    if request.user.role == 'fournisseur' and conversation.supplier_id != request.user.supplier_id:
-        raise PermissionDenied
+    require_conversation_access(request.user, conversation)
     form = ConversationReplyForm()
-    return render(request, 'conversations/detail.html', app_context(request, conversation=conversation, form=form))
+    can_reply_conversation = request.user.role in ['demandeur', 'fournisseur']
+    return render(request, 'conversations/detail.html', app_context(
+        request,
+        conversation=conversation,
+        form=form,
+        can_reply_conversation=can_reply_conversation,
+    ))
 
 
 @login_required(login_url='login')
@@ -1009,12 +1048,7 @@ def conversation_reply(request, pk):
     if conversation.status == 'cloturee':
         messages.error(request, 'Conversation cloturee.')
         return redirect(f'/conversations/{pk}/')
-    if request.user.role == 'demandeur' and conversation.demandeur_id != request.user.id:
-        raise PermissionDenied
-    if request.user.role == 'fournisseur' and conversation.supplier_id != request.user.supplier_id:
-        raise PermissionDenied
-    if not has_role(request.user, 'demandeur', 'acheteur', 'fournisseur'):
-        raise PermissionDenied
+    require_conversation_access(request.user, conversation, write=True)
     form = ConversationReplyForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         message = form.save(commit=False)
@@ -1022,12 +1056,9 @@ def conversation_reply(request, pk):
         if request.user.role == 'demandeur':
             message.sender_type = 'demandeur'
             message.sender_user = request.user
-        elif request.user.role == 'fournisseur':
-            message.sender_type = 'fournisseur'
-            message.sender_supplier = request.user.supplier
         else:
             message.sender_type = 'fournisseur'
-            message.sender_supplier = conversation.supplier
+            message.sender_supplier = request.user.supplier
         message.save()
         create_audit_log(
             request.user,
@@ -1048,18 +1079,15 @@ def conversation_reply(request, pk):
 @login_required(login_url='login')
 def request_open_conversation(request, pk):
     purchase_request = get_object_or_404(PurchaseRequest.objects.prefetch_related('lines__product'), pk=pk)
-    if not has_role(request.user, 'demandeur', 'acheteur'):
+    if request.user.role != 'demandeur':
         raise PermissionDenied
-    if request.user.role == 'demandeur' and purchase_request.requested_by_id != request.user.id:
+    if purchase_request.requested_by_id != request.user.id:
         raise PermissionDenied
     form = ConversationOpenForm(purchase_request, request.POST or None)
     if request.method == 'POST' and form.is_valid():
         line = form.cleaned_data['request_line']
         supplier = form.cleaned_data['supplier']
         trigger = SupplierRequestConversation.trigger_for_product(line.product)
-        if trigger is None:
-            messages.error(request, 'Conversation autorisee uniquement pour un article critique, en rupture ou indisponible.')
-            return redirect(f'/requests/{pk}/')
         conversation = SupplierRequestConversation.objects.filter(
             request_line=line,
             supplier=supplier,

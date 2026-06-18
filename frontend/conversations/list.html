@@ -3,7 +3,7 @@
 {% block title %}Conversations - GestAchats{% endblock %}
 {% block eyebrow %}Fournisseur{% endblock %}
 {% block page_title %}Conversations fournisseur / demandeur{% endblock %}
-{% block page_subtitle %}Discussions ouvertes quand un article est critique, en rupture ou indisponible.{% endblock %}
+{% block page_subtitle %}Discussions ouvertes autour des articles d'une demande d'achat.{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -17,7 +17,7 @@
       {% empty %}
         <article>
           <strong>Aucune conversation</strong>
-          <span>Les conversations apparaissent quand une demande contient un article critique, en rupture ou indisponible.</span>
+          <span>Les conversations apparaissent quand un demandeur contacte un fournisseur depuis une demande.</span>
         </article>
       {% endfor %}
     </div>

@@ -222,13 +222,23 @@
           <span class="eyebrow">Notifications</span>
           <h2 id="notifications-title">Alertes recentes</h2>
         </div>
-        <span class="status-pill info">{{ unread_notifications_count }} non lues</span>
+        <div class="form-actions">
+          <span class="status-pill info">{{ unread_notifications_count }} non lues</span>
+          {% if unread_notifications_count %}
+            <form method="post" action="/notifications/mark-all-read/" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit">Tout marquer comme lu</button>
+            </form>
+          {% endif %}
+        </div>
       </div>
       <div class="timeline">
         {% for notification in recent_notifications %}
           <article>
             <strong>
-              {% if notification.link %}<a href="{{ notification.link }}">{{ notification.title }}</a>{% else %}{{ notification.title }}{% endif %}
+              <a href="/notifications/{{ notification.id }}/open/">{{ notification.title }}</a>
+              {% if not notification.is_read %}<span class="status-pill warning">Non lue</span>{% endif %}
             </strong>
             <span>{{ notification.created_at|date:"d/m/Y H:i" }}</span>
             <p>{{ notification.message|default:"-" }}</p>

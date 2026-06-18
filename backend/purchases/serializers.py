@@ -175,10 +175,6 @@ class SupplierRequestConversationSerializer(serializers.ModelSerializer):
             return attrs
 
         expected_trigger = SupplierRequestConversation.trigger_for_product(product)
-        if expected_trigger is None:
-            raise serializers.ValidationError({
-                'request_line': 'La conversation est autorisee seulement pour un article critique, en rupture ou indisponible.'
-            })
         trigger = attrs.get('trigger') or getattr(self.instance, 'trigger', '')
         if trigger and trigger != expected_trigger:
             raise serializers.ValidationError({

@@ -201,9 +201,10 @@ class SupplierQuote(models.Model):
 
 
 class SupplierRequestConversation(models.Model):
-    """Discussion entre un fournisseur et le demandeur pour un article critique ou indisponible"""
+    """Discussion entre un fournisseur et le demandeur pour une ligne de demande"""
 
     TRIGGER_CHOICES = [
+        ('demande', 'Demande fournisseur'),
         ('critique', 'Stock critique'),
         ('rupture', 'Rupture de stock'),
         ('indisponible', 'Article indisponible'),
@@ -258,7 +259,7 @@ class SupplierRequestConversation(models.Model):
             return 'rupture'
         if product.stock_status == 'critique':
             return 'critique'
-        return None
+        return 'demande'
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -271,10 +272,6 @@ class SupplierRequestConversation(models.Model):
             return
 
         expected_trigger = self.trigger_for_product(product)
-        if expected_trigger is None:
-            raise ValidationError(
-                'Une conversation fournisseur est autorisee seulement pour un article critique, en rupture ou indisponible.'
-            )
         if not self.trigger:
             self.trigger = expected_trigger
         elif self.trigger != expected_trigger:

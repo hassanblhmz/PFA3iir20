@@ -20,6 +20,8 @@ urlpatterns = [
     path('styles.css', serve, {'path': 'styles.css', 'document_root': settings.BASE_DIR.parent / 'frontend'}),
     path('login/', GestAchatsLoginView.as_view(), name='login'),
     path('logout/', GestAchatsLogoutView.as_view(), name='logout'),
+    path('notifications/<int:pk>/open/', views.notification_open, name='notification-open'),
+    path('notifications/mark-all-read/', views.notifications_mark_all_read, name='notifications-mark-all-read'),
     path('accounts/', AccountsView.as_view(), name='accounts'),
     path('products/', views.product_list, name='product-list'),
     path('products/new/', views.product_create, name='product-create'),

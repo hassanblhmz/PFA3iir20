@@ -31,6 +31,8 @@ from suppliers.models import Supplier
 from users.models import User
 
 
+DEMO_SUPPLIER_EMAIL = 'fournisseur@pfa.ma'
+
 DEMO_ACCOUNTS = [
     {'key': 'admin', 'email': 'admin@pfa.ma', 'password': 'admin123', 'role': 'Administrateur'},
     {'key': 'demandeur', 'email': 'demandeur@pfa.ma', 'password': 'test123', 'role': 'Demandeur'},
@@ -189,6 +191,48 @@ def require_role(user, *roles):
         raise PermissionDenied
 
 
+def is_demo_supplier_user(user):
+    return user.is_authenticated and user.role == 'fournisseur' and user.email == DEMO_SUPPLIER_EMAIL
+
+
+def supplier_order_queryset(user, queryset):
+    if user.role != 'fournisseur':
+        return queryset
+    queryset = queryset.exclude(status='brouillon')
+    if is_demo_supplier_user(user):
+        return queryset
+    if user.supplier_id:
+        return queryset.filter(supplier=user.supplier)
+    return queryset.none()
+
+
+def can_supplier_access_order(user, order):
+    if user.role != 'fournisseur':
+        return False
+    return is_demo_supplier_user(user) or (
+        user.supplier_id and order.supplier_id == user.supplier_id
+    )
+
+
+def can_supplier_access_conversation(user, conversation):
+    if user.role != 'fournisseur':
+        return False
+    return is_demo_supplier_user(user) or (
+        user.supplier_id and conversation.supplier_id == user.supplier_id
+    )
+
+
+def supplier_portal_users(supplier):
+    return User.objects.filter(
+        Q(role='fournisseur', is_active=True),
+        Q(supplier=supplier) | Q(email=DEMO_SUPPLIER_EMAIL),
+    ).distinct()
+
+
+def supplier_portal_users_for_order(order):
+    return supplier_portal_users(order.supplier)
+
+
 def create_audit_log(user, action, entity, entity_id=None, description=''):
     AuditLog.objects.create(
         user=user if getattr(user, 'is_authenticated', False) else None,
@@ -315,10 +359,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         workspace = workspace_for(self.request.user)
         recent_orders = PurchaseOrder.objects.select_related('supplier', 'ordered_by').order_by('-created_at')
         if self.request.user.role == 'fournisseur':
-            if self.request.user.supplier_id:
-                recent_orders = recent_orders.filter(supplier=self.request.user.supplier).exclude(status='brouillon')
-            else:
-                recent_orders = recent_orders.none()
+            recent_orders = supplier_order_queryset(self.request.user, recent_orders)
         context['workspace'] = workspace
         context['metrics'] = {
             'total_requests': PurchaseRequest.objects.count(),
@@ -687,7 +728,7 @@ def request_create_order(request, pk):
 
 def require_supplier_order_access(user, order):
     if user.role == 'fournisseur':
-        if not user.supplier_id or order.supplier_id != user.supplier_id:
+        if not can_supplier_access_order(user, order):
             raise PermissionDenied
     elif not has_role(user, 'acheteur', 'magasinier', 'direction'):
         raise PermissionDenied
@@ -698,10 +739,7 @@ def order_list(request):
     require_role(request.user, 'acheteur', 'magasinier', 'direction', 'fournisseur')
     orders = PurchaseOrder.objects.select_related('supplier', 'ordered_by', 'purchase_request').prefetch_related('order_lines__product')
     if request.user.role == 'fournisseur':
-        if not request.user.supplier_id:
-            orders = orders.none()
-        else:
-            orders = orders.filter(supplier=request.user.supplier).exclude(status='brouillon')
+        orders = supplier_order_queryset(request.user, orders)
     return render(request, 'orders/list.html', app_context(request, orders=orders.order_by('-created_at')))
 
 
@@ -717,12 +755,14 @@ def order_detail(request, pk):
     reception_form = ReceptionForm(order)
     supplier_response_form = SupplierOrderResponseForm(instance=order)
     supplier_status_form = SupplierDeliveryStatusForm(initial={'status': order.supplier_response_status})
+    supplier_portal_users_count = supplier_portal_users_for_order(order).count()
     return render(request, 'orders/detail.html', app_context(
         request,
         order=order,
         reception_form=reception_form,
         supplier_response_form=supplier_response_form,
         supplier_status_form=supplier_status_form,
+        supplier_portal_users_count=supplier_portal_users_count,
     ))
 
 
@@ -735,21 +775,28 @@ def order_send(request, pk):
         order.sent_at = timezone.now()
         order.save(update_fields=['status', 'sent_at', 'updated_at'])
         create_audit_log(request.user, 'order_sent', 'PurchaseOrder', order.id, f"Commande {order.reference} envoyee.")
-        for supplier_user in order.supplier.users.filter(is_active=True):
+        supplier_users = supplier_portal_users_for_order(order)
+        for supplier_user in supplier_users:
             notify_user(
                 supplier_user,
                 'Commande recue',
                 f"{order.reference} attend votre reponse.",
                 f"/orders/{order.pk}/",
             )
-        messages.success(request, f"Commande {order.reference} envoyee.")
+        if supplier_users.exists():
+            messages.success(request, f"Commande {order.reference} envoyee.")
+        else:
+            messages.warning(
+                request,
+                "Commande envoyee, mais aucun compte fournisseur actif n'est lie a ce fournisseur.",
+            )
     return redirect(f'/orders/{pk}/')
 
 
 @login_required(login_url='login')
 def order_supplier_quote(request, pk):
     order = get_object_or_404(PurchaseOrder, pk=pk)
-    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+    if not can_supplier_access_order(request.user, order):
         raise PermissionDenied
     if order.status not in ['envoyee', 'confirmee']:
         messages.error(request, 'Cette commande ne peut pas recevoir une reponse fournisseur.')
@@ -778,7 +825,7 @@ def order_supplier_quote(request, pk):
 @login_required(login_url='login')
 def order_supplier_confirm(request, pk):
     order = get_object_or_404(PurchaseOrder, pk=pk)
-    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+    if not can_supplier_access_order(request.user, order):
         raise PermissionDenied
     if request.method == 'POST' and order.status in ['envoyee', 'confirmee']:
         order.status = 'confirmee'
@@ -799,7 +846,7 @@ def order_supplier_confirm(request, pk):
 @login_required(login_url='login')
 def order_supplier_reject(request, pk):
     order = get_object_or_404(PurchaseOrder, pk=pk)
-    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+    if not can_supplier_access_order(request.user, order):
         raise PermissionDenied
     if request.method == 'POST' and order.status in ['envoyee', 'confirmee']:
         order.status = 'annulee'
@@ -821,7 +868,7 @@ def order_supplier_reject(request, pk):
 @login_required(login_url='login')
 def order_supplier_status(request, pk):
     order = get_object_or_404(PurchaseOrder, pk=pk)
-    if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+    if not can_supplier_access_order(request.user, order):
         raise PermissionDenied
     form = SupplierDeliveryStatusForm(request.POST or None)
     if request.method == 'POST' and form.is_valid() and order.status in ['confirmee', 'expediee']:
@@ -999,7 +1046,7 @@ def require_conversation_access(user, conversation, write=False):
             raise PermissionDenied
         return
     if user.role == 'fournisseur':
-        if not user.supplier_id or conversation.supplier_id != user.supplier_id:
+        if not can_supplier_access_conversation(user, conversation):
             raise PermissionDenied
         return
     if not write and has_role(user, 'acheteur'):
@@ -1016,10 +1063,12 @@ def conversation_list(request):
     if request.user.role == 'demandeur':
         conversations = conversations.filter(demandeur=request.user)
     elif request.user.role == 'fournisseur':
-        if not request.user.supplier_id:
-            conversations = conversations.none()
-        else:
+        if is_demo_supplier_user(request.user):
+            pass
+        elif request.user.supplier_id:
             conversations = conversations.filter(supplier=request.user.supplier)
+        else:
+            conversations = conversations.none()
     return render(request, 'conversations/list.html', app_context(request, conversations=conversations))
 
 
@@ -1058,7 +1107,7 @@ def conversation_reply(request, pk):
             message.sender_user = request.user
         else:
             message.sender_type = 'fournisseur'
-            message.sender_supplier = request.user.supplier
+            message.sender_supplier = conversation.supplier
         message.save()
         create_audit_log(
             request.user,
@@ -1068,7 +1117,7 @@ def conversation_reply(request, pk):
             f"Message ajoute dans la conversation {conversation.subject}.",
         )
         if message.sender_type == 'demandeur':
-            for supplier_user in conversation.supplier.users.filter(is_active=True):
+            for supplier_user in supplier_portal_users(conversation.supplier):
                 notify_user(supplier_user, 'Nouveau message demandeur', conversation.subject, f"/conversations/{conversation.pk}/")
         else:
             notify_user(conversation.demandeur, 'Nouveau message fournisseur', conversation.subject, f"/conversations/{conversation.pk}/")

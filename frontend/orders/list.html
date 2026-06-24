@@ -17,6 +17,7 @@
             <th>Reponse fournisseur</th>
             <th>Date prevue</th>
             <th>Total</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -31,9 +32,26 @@
               <td><span class="status-pill info">{{ order.get_supplier_response_status_display }}</span></td>
               <td>{{ order.effective_delivery_date|default:"-" }}</td>
               <td>{{ order.total_amount }}</td>
+              <td class="order-actions">
+                {% if can_supplier_manage_orders %}
+                  {% if order.status == "envoyee" %}
+                    <a class="mini-link" href="/orders/{{ order.id }}/">Repondre</a>
+                    <span>Devis, confirmation ou refus</span>
+                  {% elif order.status == "confirmee" or order.status == "expediee" %}
+                    <a class="mini-link" href="/orders/{{ order.id }}/">Suivre</a>
+                    <span>Preparation et livraison</span>
+                  {% else %}
+                    <a class="mini-link" href="/orders/{{ order.id }}/">Consulter</a>
+                  {% endif %}
+                {% elif can_manage_orders and order.status == "brouillon" %}
+                  <a class="mini-link" href="/orders/{{ order.id }}/">Envoyer</a>
+                {% else %}
+                  <a class="mini-link" href="/orders/{{ order.id }}/">Ouvrir</a>
+                {% endif %}
+              </td>
             </tr>
           {% empty %}
-            <tr><td colspan="6">Aucune commande trouvee.</td></tr>
+            <tr><td colspan="7">Aucune commande trouvee.</td></tr>
           {% endfor %}
         </tbody>
       </table>

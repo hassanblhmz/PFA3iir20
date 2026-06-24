@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django import forms
+from django.db.models import F
 from products.models import Category, Product
 from purchases.models import (
     PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine,
@@ -138,8 +139,28 @@ class ReceptionForm(StyledFormMixin, forms.Form):
 
     def __init__(self, order, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['order_line'].queryset = order.order_lines.select_related('product').order_by('product__name')
+        self.fields['order_line'].queryset = (
+            order.order_lines
+            .select_related('product')
+            .filter(quantity_received__lt=F('quantity_ordered'))
+            .order_by('product__name')
+        )
+        self.fields['order_line'].label_from_instance = self._order_line_label
         self._style_fields()
+
+    @staticmethod
+    def _order_line_label(line):
+        remaining = line.quantity_ordered - line.quantity_received
+        remaining_label = ReceptionForm._format_quantity(remaining)
+        ordered_label = ReceptionForm._format_quantity(line.quantity_ordered)
+        return (
+            f"{line.product.code} - {line.product.name} "
+            f"(reste {remaining_label} / commande {ordered_label})"
+        )
+
+    @staticmethod
+    def _format_quantity(value):
+        return format(value.normalize(), 'f').rstrip('0').rstrip('.')
 
 
 class SupplierOrderResponseForm(StyledFormMixin, forms.ModelForm):

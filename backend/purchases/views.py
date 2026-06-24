@@ -23,6 +23,40 @@ from .serializers import (
 from users.permissions import IsValidateur, IsAdminOrAcheteur
 
 
+DEMO_SUPPLIER_EMAIL = 'fournisseur@pfa.ma'
+
+
+def is_demo_supplier_user(user):
+    return getattr(user, 'role', None) == 'fournisseur' and getattr(user, 'email', None) == DEMO_SUPPLIER_EMAIL
+
+
+def supplier_order_queryset(user, queryset):
+    if getattr(user, 'role', None) != 'fournisseur':
+        return queryset
+    queryset = queryset.exclude(status='brouillon')
+    if is_demo_supplier_user(user):
+        return queryset
+    if user.supplier_id:
+        return queryset.filter(supplier=user.supplier)
+    return queryset.none()
+
+
+def can_supplier_access_order(user, order):
+    if getattr(user, 'role', None) != 'fournisseur':
+        return False
+    return is_demo_supplier_user(user) or (
+        user.supplier_id and order.supplier_id == user.supplier_id
+    )
+
+
+def can_supplier_access_conversation(user, conversation):
+    if getattr(user, 'role', None) != 'fournisseur':
+        return False
+    return is_demo_supplier_user(user) or (
+        user.supplier_id and conversation.supplier_id == user.supplier_id
+    )
+
+
 def create_audit_log(user, action, entity, entity_id=None, description=''):
     """Create audit entries for sensitive workflow actions without blocking the response."""
     try:
@@ -209,9 +243,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         user = self.request.user
         if getattr(user, 'role', None) == 'fournisseur':
-            if not user.supplier_id:
-                return queryset.none()
-            return queryset.filter(supplier=user.supplier).exclude(status='brouillon')
+            return supplier_order_queryset(user, queryset)
         return queryset
 
     def perform_create(self, serializer):
@@ -249,7 +281,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def supplier_reply(self, request, pk=None):
         """Reponse fournisseur: devis, confirmation, refus ou suivi livraison."""
         order = self.get_object()
-        if request.user.role != 'fournisseur' or not request.user.supplier_id or order.supplier_id != request.user.supplier_id:
+        if not can_supplier_access_order(request.user, order):
             return Response({'error': 'Non autorise.'}, status=403)
 
         action_name = request.data.get('action', 'quote')
@@ -317,9 +349,11 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
         if getattr(user, 'role', None) == 'demandeur':
             return queryset.filter(demandeur=user)
         if getattr(user, 'role', None) == 'fournisseur':
-            if not user.supplier_id:
-                return queryset.none()
-            return queryset.filter(supplier=user.supplier)
+            if is_demo_supplier_user(user):
+                return queryset
+            if user.supplier_id:
+                return queryset.filter(supplier=user.supplier)
+            return queryset.none()
         if getattr(user, 'role', None) in ['admin', 'acheteur']:
             return queryset
         return queryset.none()
@@ -350,7 +384,7 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied('Seul le demandeur de la conversation peut repondre.')
             sender_type = 'demandeur'
         elif request.user.role == 'fournisseur':
-            if not request.user.supplier_id or conversation.supplier_id != request.user.supplier_id:
+            if not can_supplier_access_conversation(request.user, conversation):
                 raise PermissionDenied('Seul le fournisseur de la conversation peut repondre.')
             sender_type = 'fournisseur'
         else:
@@ -362,7 +396,7 @@ class SupplierRequestConversationViewSet(viewsets.ModelViewSet):
         }
 
         if sender_type == 'fournisseur':
-            data['sender_supplier'] = request.user.supplier_id
+            data['sender_supplier'] = conversation.supplier_id
         else:
             data['sender_user'] = request.user.id
 

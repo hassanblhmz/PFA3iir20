@@ -13,7 +13,7 @@
   --violet: #6f57d8;
   --nav: #101820;
   --gold: #f2c94c;
-  --shadow: 0 16px 36px rgba(24, 39, 75, 0.07);
+  --shadow: 0 12px 28px rgba(24, 39, 75, 0.06);
 }
 
 * {
@@ -56,6 +56,7 @@ button {
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 button:hover,
@@ -64,6 +65,12 @@ button:hover,
 .endpoint-list a:hover,
 .demo-account-button:hover {
   filter: brightness(0.95);
+}
+
+button:active,
+.text-link:active,
+.mini-link:active {
+  transform: translateY(1px);
 }
 
 button:focus-visible,
@@ -162,9 +169,9 @@ textarea:focus-visible {
 
 .main {
   display: grid;
-  gap: 22px;
+  gap: 20px;
   align-content: start;
-  padding: 26px;
+  padding: 28px;
 }
 
 .topbar,
@@ -190,7 +197,7 @@ textarea:focus-visible {
 .workspace-header {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
   align-items: end;
-  padding: 20px 0 4px;
+  padding: 16px 0 2px;
 }
 
 .workspace-header p {
@@ -200,7 +207,8 @@ textarea:focus-visible {
 }
 
 .header-actions {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  justify-content: end;
 }
 
 .eyebrow {
@@ -265,6 +273,7 @@ textarea,
   border-radius: 8px;
   background: #ffffff;
   color: var(--ink);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 input,
@@ -278,6 +287,14 @@ textarea {
   min-height: 108px;
   padding: 12px;
   resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.form-control:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
 }
 
 .message-stack {
@@ -305,6 +322,12 @@ textarea {
   color: var(--red);
 }
 
+.alert.warning {
+  border-color: #f1d29a;
+  background: #fff4df;
+  color: var(--amber);
+}
+
 .form-panel {
   max-width: 1040px;
 }
@@ -316,6 +339,13 @@ textarea {
 
 .compact-form {
   gap: 12px;
+}
+
+.entity-form h3 {
+  margin: 8px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 1rem;
 }
 
 .form-grid {
@@ -359,6 +389,15 @@ textarea {
   align-items: center;
 }
 
+.inline-form {
+  margin: 0;
+}
+
+.form-actions button,
+.inline-form button {
+  padding: 0 14px;
+}
+
 .danger-button {
   background: var(--red);
 }
@@ -382,7 +421,7 @@ textarea {
   min-height: 124px;
   display: grid;
   align-content: space-between;
-  padding: 18px;
+  padding: 17px 18px;
   border-top: 4px solid var(--blue);
 }
 
@@ -415,7 +454,7 @@ textarea {
 
 .workflow-band,
 .panel {
-  padding: 22px;
+  padding: 20px;
 }
 
 .section-head {
@@ -435,8 +474,10 @@ textarea {
   padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #ffffff;
   color: var(--blue);
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .primary-link {
@@ -453,9 +494,11 @@ textarea {
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #ffffff;
   color: var(--blue);
   font-size: 0.82rem;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .workflow-steps {
@@ -502,6 +545,7 @@ textarea {
 
 .table-wrap {
   overflow-x: auto;
+  border-radius: 8px;
 }
 
 table {
@@ -519,6 +563,7 @@ td {
 }
 
 th {
+  background: #f8fafc;
   color: var(--muted);
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -528,6 +573,31 @@ td span {
   display: block;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+tbody tr {
+  transition: background 0.16s ease;
+}
+
+tbody tr:hover {
+  background: #fbfdff;
+}
+
+td strong a {
+  color: var(--blue);
+}
+
+.order-actions {
+  min-width: 150px;
+}
+
+.order-actions .mini-link {
+  margin-bottom: 4px;
+}
+
+.order-actions span {
+  max-width: 180px;
+  line-height: 1.25;
 }
 
 .status-pill {
@@ -699,6 +769,13 @@ td span {
   background: var(--surface-soft);
 }
 
+.timeline article strong {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .timeline span,
 .timeline p {
   margin: 0;
@@ -720,6 +797,21 @@ td span {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+}
+
+.module-card,
+.timeline article,
+.conversation-list article,
+.status-list div {
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.module-card:hover,
+.timeline article:hover,
+.conversation-list article:hover,
+.status-list div:hover {
+  border-color: var(--line-strong);
+  background: #ffffff;
 }
 
 .status-list span {

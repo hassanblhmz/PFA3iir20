@@ -9,9 +9,6 @@
   {% if can_manage_orders and order.status == "brouillon" %}
     <form method="post" action="/orders/{{ order.id }}/send/" class="inline-form">{% csrf_token %}<button type="submit">Envoyer</button></form>
   {% endif %}
-  {% if can_supplier_manage_orders and order.status == "envoyee" %}
-    <form method="post" action="/orders/{{ order.id }}/supplier-confirm/" class="inline-form">{% csrf_token %}<button type="submit">Confirmer</button></form>
-  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -88,17 +85,45 @@
           <span>Document: {{ order.supplier_document_reference|default:"-" }}</span>
           <p>{{ order.supplier_note|default:"Aucune note fournisseur." }}</p>
         </article>
+        {% if can_manage_orders and supplier_portal_users_count == 0 %}
+          <article>
+            <strong>Aucun compte fournisseur lie</strong>
+            <span>Ce fournisseur ne pourra pas repondre dans l'application tant qu'un utilisateur fournisseur n'est pas lie a cette societe.</span>
+          </article>
+        {% endif %}
+        {% if can_supplier_manage_orders %}
+          <article>
+            <strong>Action attendue</strong>
+            {% if order.status == "brouillon" %}
+              <span>L'acheteur doit d'abord envoyer cette commande.</span>
+            {% elif order.status == "envoyee" %}
+              <span>Soumettre un devis, confirmer la commande ou la refuser.</span>
+            {% elif order.status == "confirmee" %}
+              <span>Mettre a jour la preparation ou l'expedition.</span>
+            {% elif order.status == "expediee" %}
+              <span>Confirmer l'etat de livraison.</span>
+            {% elif order.status == "recue" or order.status == "cloturee" %}
+              <span>La commande est terminee cote fournisseur.</span>
+            {% elif order.status == "annulee" %}
+              <span>La commande a ete annulee/refusee.</span>
+            {% else %}
+              <span>Consulter le suivi de cette commande.</span>
+            {% endif %}
+          </article>
+        {% endif %}
       </div>
 
       {% if can_supplier_manage_orders and order.status != "annulee" and order.status != "recue" and order.status != "cloturee" %}
-        <form method="post" action="/orders/{{ order.id }}/supplier-quote/" class="entity-form compact-form">
-          {% csrf_token %}
-          <h3>Soumettre devis</h3>
-          {% for field in supplier_response_form %}
-            <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
-          {% endfor %}
-          <button type="submit">Envoyer devis</button>
-        </form>
+        {% if order.status == "envoyee" or order.status == "confirmee" %}
+          <form method="post" action="/orders/{{ order.id }}/supplier-quote/" class="entity-form compact-form">
+            {% csrf_token %}
+            <h3>Soumettre devis</h3>
+            {% for field in supplier_response_form %}
+              <label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>
+            {% endfor %}
+            <button type="submit">Envoyer devis</button>
+          </form>
+        {% endif %}
 
         {% if order.status == "envoyee" or order.status == "confirmee" %}
           <div class="form-actions">
